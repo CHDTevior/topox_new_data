@@ -51,10 +51,10 @@ PUBLISHED_TRUEBONES_GENERATION_SHA256 = (
 PUBLISHED_TRUEBONES_POINTER_SHA256 = (
     "7752119af15e8945f1d10fd3c8743b311cd8b1ca0ac35976f5664edcae07e35d"
 )
-# This pin is intentionally null until the first private upload returns its
-# immutable Hugging Face commit. The downloader requires a non-null value, so
-# no network fetch is authorized in the bootstrap commit.
-PUBLISHED_TRUEBONES_HF_REVISION: str | None = None
+# Immutable commit returned after the private upload and dataset-card update.
+PUBLISHED_TRUEBONES_HF_REVISION: str | None = (
+    "8f71ffdfb696f97657e2552ca22d7e848a085040"
+)
 _SOURCE_FIXED_QA_REPORT_SHA256 = (
     "fcf6fb1ce9ede7e1db035dd7c617631e8f729532d35e1ce79e6694029129f1ae"
 )

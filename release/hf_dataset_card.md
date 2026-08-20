@@ -2,7 +2,6 @@
 pretty_name: KTJD-17 Truebones v1
 license: other
 task_categories:
-  - text-to-motion
   - other
 ---
 
