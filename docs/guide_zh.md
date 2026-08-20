@@ -16,7 +16,6 @@ motion 文件是未 padding、未 normalization 的
 ```bash
 hf auth login
 python scripts/download_private_dataset.py \
-  --repo-id Tevior/KTJD17-Truebones-v1 \
   --local-dir data/ktjd17_truebones
 ```
 
@@ -28,9 +27,12 @@ python scripts/validate_ktjd17_truebones.py \
   --output outputs/ktjd17_truebones_distribution_qa.json
 ```
 
-下载脚本会拒绝绝对路径、`..` 和软链接逃逸；只有在 release pointer、
+下载脚本从 [release/truebones_v1.json](../release/truebones_v1.json) 读取
+private 仓库、不可变远端 revision、语料身份、release pointer 与 generation
+摘要。它会拒绝绝对路径、`..`、软链接逃逸、已存在的目标、特殊文件、硬链接和
+snapshot 根目录额外条目；先下载到临时 staging，只有在 release pointer、
 `generation.json` 摘要、全文件哈希/大小闭包、manifest-to-NPZ 引用、split
-闭包和 986 条 accepted clip 均通过后，才会返回成功。验证脚本可以直接接收
+闭包和 986 条 accepted clip 均通过后，才会原子安装并返回成功。验证脚本可以直接接收
 上面的 snapshot 根目录，并安全解析其中的版本化 generation。
 distribution QA 会逐条解码全部 986 个 clip，并检查 direct/FK、骨长刚性、
 速度、heading、contact 与 root-only channels。数据所有者若在完整构建工作区
@@ -39,6 +41,11 @@ distribution QA 会逐条解码全部 986 个 clip，并检查 direct/FK、骨�
 
 数据仓库必须保持 private。Truebones 条款禁止重新分发；不要把下载后的
 motion、skeleton 或可逆派生表示上传到 public GitHub/Hugging Face。
+
+Truebones v1 的范围是明确冻结的：上游目录共有 70 个 rig，其中 66 个具备可用
+的真实 BVH 旋转源；`Ant`、`Crab`、`Deer`、`Jaguar` 四个不可用。最终包含
+986 个 accepted clip，另有 84 个上游阶段 rejected motion。本版本还不包含
+单独的 PZ 311 个 rig 与 Human 1 个 rig；它们属于后续独立来源批次。
 
 ## 读取和训练视图
 
@@ -73,9 +80,12 @@ bash scripts/check_public_release.sh
 ```bash
 python scripts/prepare_private_dataset_release.py \
   --source-generation dataset/ktjd17_truebones \
-  --output-parent dataset/private_release
+  --output-parent dataset/private_release \
+  --postbuild-gate release/evidence/truebones_postbuild_release_gate.json
 ```
 
 该步骤保持 motion payload 字节不变，将机器本地 provenance 路径改为稳定
 相对标签，重算受影响的 skeleton/reference 哈希，再次执行完整闭包验证，
-并生成下载器强制校验的 hash-pinned `RELEASE.json`。
+并生成下载器强制校验的 hash-pinned `RELEASE.json`。postbuild gate 必须固定
+986/986 数值 QA、66/66 rig 动态透视 QA，以及 `gpt-5.6-sol / xhigh` 独立
+审查 PASS，才允许标记为 training-ready。

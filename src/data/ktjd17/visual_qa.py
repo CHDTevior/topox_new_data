@@ -160,9 +160,8 @@ def _resolve_generation_path(root: Path, relpath: Any, *, label: str) -> Path:
 
 
 def _font(size: int) -> ImageFont.ImageFont:
-    path = Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
     try:
-        return ImageFont.truetype(str(path), size=size)
+        return ImageFont.truetype("DejaVuSans.ttf", size=size)
     except OSError:
         return ImageFont.load_default()
 

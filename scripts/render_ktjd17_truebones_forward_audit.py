@@ -30,12 +30,12 @@ def main() -> int:
     parser.add_argument(
         "--audit-root",
         type=Path,
-        default=ROOT / "dataset/ktjd17_truebones_forward_audit",
+        default=Path("dataset/ktjd17_truebones_forward_audit"),
     )
     parser.add_argument(
         "--output-root",
         type=Path,
-        default=ROOT / "dataset/ktjd17_truebones_forward_visual",
+        default=Path("outputs/ktjd17_truebones_forward_visual"),
     )
     parser.add_argument("--max-gif-frames", type=int, default=24)
     parser.add_argument(

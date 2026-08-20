@@ -19,14 +19,14 @@ from src.data.ktjd17.calibration import run_prototype_calibration  # noqa: E402
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--prototype-root", type=Path, default=ROOT / "dataset/ktjd17_prototype"
+        "--prototype-root", type=Path, default=Path("dataset/ktjd17_prototype")
     )
     parser.add_argument(
         "--fixed-qa-report",
         type=Path,
-        default=ROOT / "scratch/ktjd17_t08_fixed_qa.json",
+        default=Path("outputs/ktjd17_t08_fixed_qa.json"),
     )
-    parser.add_argument("--output-root", type=Path, default=ROOT / "dataset")
+    parser.add_argument("--output-root", type=Path, default=Path("dataset"))
     args = parser.parse_args()
     result = run_prototype_calibration(
         prototype_root=args.prototype_root,

@@ -23,11 +23,27 @@ from src.data.ktjd17.truebones_forward_audit import (  # noqa: E402
 def main() -> int:
     defaults = default_forward_audit_config(ROOT)
     parser = argparse.ArgumentParser()
-    parser.add_argument("--manifest-root", type=Path, default=defaults.manifest_root)
-    parser.add_argument("--freeze-root", type=Path, default=defaults.freeze_root)
-    parser.add_argument("--output-root", type=Path, default=defaults.output_root)
-    parser.add_argument("--active-cond", type=Path, default=defaults.active_cond_path)
-    parser.add_argument("--legacy-cond", type=Path, default=defaults.legacy_cond_path)
+    parser.add_argument(
+        "--manifest-root",
+        type=Path,
+        default=Path(
+            "dataset/.ktjd17_manifest_generations/"
+            "20260819T145535975831Z-ed48b3fd2745"
+        ),
+    )
+    parser.add_argument(
+        "--freeze-root",
+        type=Path,
+        default=Path(
+            "dataset/.ktjd17_freeze_generations/"
+            "20260819T192429040697Z-fe820492caaa"
+        ),
+    )
+    parser.add_argument("--output-root", type=Path, default=Path("dataset"))
+    parser.add_argument("--active-cond", type=Path, default=Path("data/current_btjd/cond.npy"))
+    parser.add_argument(
+        "--legacy-cond", type=Path, default=Path("data/legacy_truebones_btjd/cond.npy")
+    )
     parser.add_argument("--no-update-link", action="store_true")
     args = parser.parse_args()
     config = dataclasses.replace(

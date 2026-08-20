@@ -4,9 +4,9 @@ __pycache__/
 .coverage
 .venv/
 venv/
-/data/
-/dataset/
-/outputs/
-/build/
-/dist/
+data/
+dataset/
+outputs/
+build/
+dist/
 *.egg-info/

@@ -18,7 +18,7 @@ if str(ROOT) not in sys.path:
 
 from src.data.ktjd17.fixed_qa import validate_prototype  # noqa: E402
 from src.data.ktjd17.private_release import (  # noqa: E402
-    resolve_release_generation,
+    load_trusted_release,
     resolve_repository_path,
     validate_private_distribution,
 )
@@ -62,6 +62,12 @@ def main() -> int:
         default=Path("outputs/ktjd17_truebones_qa.json"),
     )
     parser.add_argument(
+        "--trust-record",
+        type=Path,
+        default=Path("release/truebones_v1.json"),
+        help="repository-relative public trust record for standalone QA",
+    )
+    parser.add_argument(
         "--source-backed",
         action="store_true",
         help="also require the proprietary BVH and parent-manifest build workspace",
@@ -71,9 +77,9 @@ def main() -> int:
         ROOT, args.dataset_root, argument_name="--dataset-root"
     )
     output = resolve_repository_path(ROOT, args.output, argument_name="--output")
-    dataset_root = resolve_release_generation(dataset_input)
-    generation = verify_full_generation(dataset_root, require_complete=False)
     if args.source_backed:
+        dataset_root = dataset_input
+        generation = verify_full_generation(dataset_root, require_complete=True)
         report = validate_prototype(dataset_root)
         report["artifact_kind"] = "full_truebones_source_backed_dataset"
         report["full_build_version"] = generation["full_build_version"]
@@ -94,7 +100,13 @@ def main() -> int:
         if not conversion_complete:
             report["status"] = "fail"
     else:
-        report = validate_private_distribution(dataset_input)
+        trust_path = resolve_repository_path(
+            ROOT, args.trust_record, argument_name="--trust-record"
+        )
+        trust = load_trusted_release(trust_path)
+        report = validate_private_distribution(
+            dataset_input, trusted_release=trust
+        )
         conversion_complete = True
     _write_json_atomic(output, report)
     summary = {

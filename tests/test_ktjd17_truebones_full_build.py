@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import hashlib
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,8 +15,12 @@ from src.data.ktjd17.truebones_full_build import (
     PARENT_PROTOTYPE_CANDIDATES_SHA256,
     TruebonesFullBuildError,
     _representative_regression,
+    _accepted_identity_sha256,
+    _file_manifest,
     _sha256_file,
     _snapshot_regular_file,
+    _source_scope_identity_sha256,
+    _verify_selection_identity,
     _verify_payload_reference_closure,
     default_full_build_config,
     reviewed_representative_clip_ids,
@@ -112,6 +118,81 @@ class FullBuildAuthorityTests(unittest.TestCase):
 
 
 class FullBuildRegressionTests(unittest.TestCase):
+    def test_file_manifest_rejects_special_files_and_hardlinks(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            os.mkfifo(root / "extra.fifo")
+            with self.assertRaisesRegex(TruebonesFullBuildError, "special file"):
+                _file_manifest(root, forbid_hardlinks=True)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            payload = root / "payload.bin"
+            payload.write_bytes(b"payload")
+            os.link(payload, root / "alias.bin")
+            with self.assertRaisesRegex(TruebonesFullBuildError, "hard-linked"):
+                _file_manifest(root, forbid_hardlinks=True)
+
+    def test_selection_verifier_rejects_self_consistent_foreign_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "manifests").mkdir()
+            (root / "qa").mkdir()
+            selected = [
+                {"clip_id": "ForeignCorp___Clip_0001", "rig_id": "ForeignCorp", "split": "train"}
+            ]
+            counts = {
+                split: {"selected": int(split == "train")}
+                for split in ("train", "val", "held_representative", "held_stress")
+            }
+            authority = {"selection_kind": "full_source_safe_conversion"}
+            core = {
+                "selection_authority": authority,
+                "selection_counts": counts,
+                "selected": selected,
+            }
+            selection_sha = hashlib.sha256(
+                json.dumps(
+                    core,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    ensure_ascii=True,
+                ).encode("utf-8")
+            ).hexdigest()
+            payload = {
+                **core,
+                "selection_sha256": selection_sha,
+                "selected_count": 1,
+            }
+            for name in ("full_selection.json", "prototype_selection.json"):
+                (root / "manifests" / name).write_text(
+                    json.dumps(payload), encoding="utf-8"
+                )
+            (root / "qa/encoder_summary.json").write_text(
+                json.dumps(
+                    {
+                        "selection_authority": authority,
+                        "selection_counts": counts,
+                        "selection_sha256": selection_sha,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            generation = {"selection_sha256": selection_sha}
+            with self.assertRaisesRegex(TruebonesFullBuildError, "frozen pin"):
+                _verify_selection_identity(root, generation, selected)
+
+    def test_identity_digests_change_on_foreign_substitution(self) -> None:
+        accepted = [{"clip_id": "A", "rig_id": "Rig", "split": "train"}]
+        foreign = [{"clip_id": "B", "rig_id": "Rig", "split": "train"}]
+        self.assertNotEqual(
+            _accepted_identity_sha256(accepted),
+            _accepted_identity_sha256(foreign),
+        )
+        self.assertNotEqual(
+            _source_scope_identity_sha256(accepted, [], []),
+            _source_scope_identity_sha256(foreign, [], []),
+        )
+
     def test_payload_reference_closure_rejects_orphan_motion(self) -> None:
         observed = {
             "motions/accepted.npz": {},

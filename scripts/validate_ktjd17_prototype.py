@@ -45,12 +45,12 @@ def _write_json_atomic(path: Path, value: object) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--prototype-root", type=Path, default=ROOT / "dataset/ktjd17_prototype"
+        "--prototype-root", type=Path, default=Path("dataset/ktjd17_prototype")
     )
     parser.add_argument(
         "--output",
         type=Path,
-        default=ROOT / "scratch/ktjd17_t08_fixed_qa.json",
+        default=Path("outputs/ktjd17_t08_fixed_qa.json"),
     )
     args = parser.parse_args()
     report = validate_prototype(args.prototype_root)

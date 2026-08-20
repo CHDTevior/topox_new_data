@@ -28,12 +28,12 @@ def main() -> int:
     parser.add_argument(
         "--manifest-root",
         type=Path,
-        default=REPO_ROOT / "dataset" / "manifests",
+        default=Path("dataset/manifests"),
     )
     parser.add_argument(
         "--output-root",
         type=Path,
-        default=REPO_ROOT / "dataset" / "manifests",
+        default=Path("dataset/manifests"),
     )
     parser.add_argument(
         "--overwrite",

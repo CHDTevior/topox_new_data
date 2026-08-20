@@ -23,12 +23,12 @@ def main() -> int:
     parser.add_argument(
         "--manifest-root",
         type=Path,
-        default=REPO_ROOT / "dataset" / "manifests",
+        default=Path("dataset/manifests"),
     )
     parser.add_argument(
         "--report",
         type=Path,
-        default=REPO_ROOT / "dataset" / "validation_reports" / "source_fk_validation.json",
+        default=Path("outputs/source_fk_validation.json"),
     )
     args = parser.parse_args()
     report = validate_source_fk_outputs(args.manifest_root)

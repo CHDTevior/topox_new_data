@@ -35,6 +35,12 @@ def main() -> int:
         type=Path,
         default=Path("dataset/private_release"),
     )
+    parser.add_argument(
+        "--postbuild-gate",
+        type=Path,
+        required=True,
+        help="repository-relative signed fixed-QA and visual-review gate",
+    )
     args = parser.parse_args()
     try:
         source = resolve_repository_path(
@@ -43,7 +49,12 @@ def main() -> int:
         output = resolve_repository_path(
             ROOT, args.output_parent, argument_name="--output-parent"
         )
-        result = prepare_private_distribution(source, output)
+        gate = resolve_repository_path(
+            ROOT, args.postbuild_gate, argument_name="--postbuild-gate"
+        )
+        result = prepare_private_distribution(
+            source, output, postbuild_gate=gate
+        )
     except (PrivateReleaseError, TruebonesFullBuildError) as exc:
         parser.error(str(exc))
     display = dict(result)

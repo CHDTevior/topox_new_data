@@ -4,8 +4,9 @@ This repository contains the conversion, validation, loading, dual-decoding,
 and visual-QA tools used to build a lossless KTJD-17 representation from
 multi-topology motion sources.
 
-The implementation follows the pinned
-[KTJD-17 design](https://github.com/CHDTevior/topox/blob/9181f5cccbad23e941bf94c2874daf36e7f288cf/handoff/20260819_ktjd17_multitopology_design.md).
+The implementation follows the repository-local
+[KTJD-17 design](docs/KTJD17_DESIGN.md), transcribed from the reviewed TopoX
+handoff at commit `9181f5cccbad23e941bf94c2874daf36e7f288cf`.
 The validated implementation snapshot came from source commit
 `7a691cab858a2aebdedb4a4f192aac5d50bdd178`.
 
@@ -48,14 +49,15 @@ contract, and [docs/guide_zh.md](docs/guide_zh.md) for the Chinese guide.
 ```bash
 python -m venv .venv
 . .venv/bin/activate
-python -m pip install -e .
+python -m pip install -r requirements.txt
 python -m unittest discover -s tests -p 'test_*.py' -q
 ```
 
 The release tree includes data-independent tests plus fixture-bound regression
 tests. A clean checkout runs the data-independent subset and explicitly skips
 assertions tied to private immutable generations. The full source environment
-passes all 116. Tests do
+passes all 128 tests (with private-fixture tests skipped in a clean checkout).
+Tests do
 not download or bundle third-party motion data.
 
 ## Download the private validated dataset
@@ -67,7 +69,6 @@ to Hugging Face and download it into a repository-relative directory:
 ```bash
 hf auth login
 python scripts/download_private_dataset.py \
-  --repo-id Tevior/KTJD17-Truebones-v1 \
   --local-dir data/ktjd17_truebones
 ```
 
@@ -79,16 +80,26 @@ python scripts/validate_ktjd17_truebones.py \
   --output outputs/ktjd17_truebones_distribution_qa.json
 ```
 
-The downloader rejects absolute paths, `..` escapes, and symlink escapes. It
-reports success only after checking the release pointer, the pinned
-`generation.json` digest, every immutable file hash/size, all manifest-to-NPZ
-references, split closure, and the 986 accepted clips. The validator accepts
+The downloader reads [release/truebones_v1.json](release/truebones_v1.json),
+which pins the private repository, immutable remote revision, corpus identity,
+release pointer, and `generation.json`. It rejects absolute paths, `..`
+escapes, symlink escapes, existing destinations, special files, hard links,
+and unexpected snapshot-root entries. Download happens in a fresh staging
+directory and is atomically installed only after checking the release pointer,
+the pinned `generation.json` digest, every immutable file hash/size, all
+manifest-to-NPZ references, split closure, and the 986 accepted clips. The validator accepts
 the snapshot root shown above and resolves its versioned generation safely.
 Distribution QA decodes all 986 clips and checks the direct/FK agreement,
 rigid edges, velocities, headings, contacts, and root-only channels without
 requiring proprietary BVH files. Data owners can additionally use
 `--source-backed` inside the complete build workspace; that mode intentionally
 requires the original source files and parent manifests.
+
+The published Truebones v1 scope is deliberately exact: the upstream catalog
+names 70 rigs, 66 have usable authoritative BVH rotations, and 4 are unavailable
+(`Ant`, `Crab`, `Deer`, `Jaguar`). The release contains 986 accepted clips;
+84 other catalog motions were rejected upstream before conversion. It does not
+yet contain the separate Planet Zoo 311-rig or Human 1-rig batches.
 
 The download helper reads the token from the Hugging Face credential store.
 Do not put tokens in commands, source files, or configuration committed to Git.
@@ -104,9 +115,15 @@ from src.data.ktjd17.codec import restore_origin_xz
 from src.data.ktjd17.decoder import decode_ktjd17
 from src.data.ktjd17.encoder import load_skeleton
 from src.data.ktjd17.loader import load_motion_npz
-from src.data.ktjd17.private_release import resolve_release_generation
+from src.data.ktjd17.private_release import (
+    load_trusted_release,
+    resolve_release_generation,
+)
 
-root = resolve_release_generation(Path("data/ktjd17_truebones"))
+trust = load_trusted_release(Path("release/truebones_v1.json"))
+root = resolve_release_generation(
+    Path("data/ktjd17_truebones"), trusted_release=trust
+)
 rows = [
     json.loads(line)
     for line in (root / "manifests/clips.jsonl").read_text().splitlines()
@@ -198,8 +215,14 @@ needed by the downloader:
 ```bash
 python scripts/prepare_private_dataset_release.py \
   --source-generation dataset/ktjd17_truebones \
-  --output-parent dataset/private_release
+  --output-parent dataset/private_release \
+  --postbuild-gate release/evidence/truebones_postbuild_release_gate.json
 ```
+
+The postbuild gate must pin a 986/986 fixed-QA pass and a 66/66-rig dynamic
+perspective review performed with `gpt-5.6-sol` at `xhigh` reasoning. The
+release copy is marked training-ready only after those checks and byte-level
+motion / elementwise-numeric skeleton equivalence succeed.
 
 ## Data boundary
 

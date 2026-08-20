@@ -19,14 +19,14 @@ from src.data.ktjd17.visual_qa import render_prototype_visual_qa  # noqa: E402
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--prototype-root", type=Path, default=ROOT / "dataset/ktjd17_prototype"
+        "--prototype-root", type=Path, default=Path("dataset/ktjd17_prototype")
     )
     parser.add_argument(
         "--calibration-root",
         type=Path,
-        default=ROOT / "dataset/ktjd17_calibration_candidate",
+        default=Path("dataset/ktjd17_calibration_candidate"),
     )
-    parser.add_argument("--output-root", type=Path, default=ROOT / "dataset")
+    parser.add_argument("--output-root", type=Path, default=Path("outputs/ktjd17_visual_qa"))
     parser.add_argument("--clip-id", action="append", default=[])
     parser.add_argument("--max-gif-frames", type=int, default=36)
     args = parser.parse_args()

@@ -1,0 +1,45 @@
+{
+  "fixed_qa": {
+    "J_phys_max": 142,
+    "T_max_observed": 237,
+    "clip_count": 986,
+    "fail_count": 0,
+    "pass_count": 986,
+    "report_sha256": "fcf6fb1ce9ede7e1db035dd7c617631e8f729532d35e1ce79e6694029129f1ae",
+    "skeleton_count": 66,
+    "status": "pass"
+  },
+  "gate_version": "ktjd17-truebones-postbuild-gate-v1",
+  "generation_id": "20260819T215405576671Z-2d04a8d85638",
+  "source_generation_json_sha256": "46a0d011a47e09fc5451aa97de5fe9d01a561465a8a09ae8bec75e36a9fd6484",
+  "status": "pass",
+  "visual_qa": {
+    "artifact_count": 198,
+    "contact_sheet_count": 11,
+    "coordinate_contract": "right-handed; +Y is screen-up; +Z points out of the screen toward the viewer",
+    "dynamic_strata": [
+      "biped_or_human_like",
+      "dragon_or_deep_topology",
+      "fish_or_aquatic",
+      "quadruped",
+      "snake",
+      "spider_or_crab_like",
+      "turtle",
+      "winged"
+    ],
+    "independent_review": {
+      "attached_image_count": 19,
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "xhigh",
+      "report_relpath": "release/evidence/truebones_visual_review_gpt56sol.md",
+      "report_sha256": "f37b7915afc81ddf787578065eaad38de510e801836f8dab7e155a03977b2b1d",
+      "thread_id": "01a01d44-6cea-7031-a139-2c6c18e7785f",
+      "verdict": "pass"
+    },
+    "reviewed_rig_count": 66,
+    "status": "pass",
+    "visual_equivalence_report_sha256": "73e29dd5039c110df41a1b8f1939458ef9570a403589b8024340cf26fa8df4ba",
+    "visual_generation_id": "20260819T215929053759Z-faf7ba07b6f5",
+    "visual_index_sha256": "6754c9d8f909fe11f04c44e3499c69f49c1c524eade9e4634c9a3827755b3992"
+  }
+}

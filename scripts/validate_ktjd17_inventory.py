@@ -21,20 +21,20 @@ from src.data.ktjd17.inventory_validation import (  # noqa: E402
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--manifest-root", type=Path, default=REPO_ROOT / "dataset" / "manifests"
+        "--manifest-root", type=Path, default=Path("dataset/manifests")
     )
     parser.add_argument(
         "--dataset-root",
         type=Path,
-        default=REPO_ROOT / "data" / "animo4d_L4TB_plus_human_v4b272neutral",
+        default=Path("data/current_btjd"),
     )
     parser.add_argument(
-        "--split-root", type=Path, default=REPO_ROOT / "data" / "holdout_splits_v1"
+        "--split-root", type=Path, default=Path("data/holdout_splits_v1")
     )
     parser.add_argument(
         "--report",
         type=Path,
-        default=REPO_ROOT / "dataset" / "validation_reports" / "inventory_validation.json",
+        default=Path("outputs/inventory_validation.json"),
     )
     args = parser.parse_args()
     report = validate_inventory_outputs(

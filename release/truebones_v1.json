@@ -1,0 +1,13 @@
+{
+  "accepted_identity_sha256": "e9d4d3541ae9c40cd8f7f5f56d4cf5d9d1e21312db280f83fa18add901804bc4",
+  "generation_id": "20260819T215405576671Z-2d04a8d85638",
+  "generation_json_sha256": "37bf0419f06ba28b27efe6f73d944bee1553235fe73a01e538d1bf4e179210c4",
+  "hf_revision": null,
+  "private_required": true,
+  "release_pointer_sha256": "c752f8c07421b29bdb5465583735584b4d400751206b8d1972c42df794512952",
+  "release_version": "ktjd17-private-distribution-v1",
+  "repo_id": "Tevior/KTJD17-Truebones-v1",
+  "repo_type": "dataset",
+  "source_scope_identity_sha256": "67b4935703ce9d72792963634f35847a9ce9c08771b95884e89225bee3ed36d2",
+  "trust_record_version": "ktjd17-public-trust-v1"
+}

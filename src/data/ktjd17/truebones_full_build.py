@@ -68,6 +68,53 @@ from .visual_qa import verify_visual_generation
 FULL_BUILD_VERSION = "ktjd17-truebones-frozen-full-v1"
 FULL_GENERATION_DIRECTORY = ".ktjd17_truebones_generations"
 FULL_LINK_NAME = "ktjd17_truebones"
+# Public, data-free identity pins for the reviewed Truebones source scope.  The
+# accepted digest covers the ordered ``clip_id``/``rig_id``/``split`` triples;
+# the source-scope digest additionally covers every accepted and rejected clip.
+# These are deliberately independent of mutable distribution metadata, so a
+# self-consistent replacement corpus cannot authenticate itself by re-hashing
+# its own manifests.
+EXPECTED_ACCEPTED_IDENTITY_SHA256 = (
+    "e9d4d3541ae9c40cd8f7f5f56d4cf5d9d1e21312db280f83fa18add901804bc4"
+)
+EXPECTED_SOURCE_SCOPE_IDENTITY_SHA256 = (
+    "67b4935703ce9d72792963634f35847a9ce9c08771b95884e89225bee3ed36d2"
+)
+RELEASE_READY_STATUS = "release_ready"
+POSTBUILD_GATE_VERSION = "ktjd17-truebones-postbuild-gate-v1"
+EXPECTED_SOURCE_GENERATION_ID = "20260819T215405576671Z-2d04a8d85638"
+EXPECTED_SOURCE_GENERATION_JSON_SHA256 = (
+    "46a0d011a47e09fc5451aa97de5fe9d01a561465a8a09ae8bec75e36a9fd6484"
+)
+EXPECTED_FIXED_QA_REPORT_SHA256 = (
+    "fcf6fb1ce9ede7e1db035dd7c617631e8f729532d35e1ce79e6694029129f1ae"
+)
+EXPECTED_POSTBUILD_VISUAL_GENERATION_ID = "20260819T215929053759Z-faf7ba07b6f5"
+EXPECTED_POSTBUILD_VISUAL_INDEX_SHA256 = (
+    "6754c9d8f909fe11f04c44e3499c69f49c1c524eade9e4634c9a3827755b3992"
+)
+EXPECTED_VISUAL_EQUIVALENCE_REPORT_SHA256 = (
+    "73e29dd5039c110df41a1b8f1939458ef9570a403589b8024340cf26fa8df4ba"
+)
+EXPECTED_POSTBUILD_VISUAL_REVIEW_SHA256 = (
+    "f37b7915afc81ddf787578065eaad38de510e801836f8dab7e155a03977b2b1d"
+)
+EXPECTED_POSTBUILD_VISUAL_REVIEW_THREAD_ID = (
+    "01a01d44-6cea-7031-a139-2c6c18e7785f"
+)
+EXPECTED_POSTBUILD_GATE_SHA256 = (
+    "eb6ee4b3d3c84f428b1fb4930e595d1effd4d339f2f2a6ec66d7b7e2c4a60b91"
+)
+EXPECTED_POSTBUILD_DYNAMIC_STRATA = [
+    "biped_or_human_like",
+    "dragon_or_deep_topology",
+    "fish_or_aquatic",
+    "quadruped",
+    "snake",
+    "spider_or_crab_like",
+    "turtle",
+    "winged",
+]
 FORWARD_AUDIT_GENERATION_ID = "20260819T203306371942Z-8541b68c8480"
 FORWARD_AUDIT_GENERATION_SHA256 = (
     "787313054cd4b75e370a9e0bb83e9fbc8a004b02a76a09a5b2248fd3c092aa9d"
@@ -242,21 +289,35 @@ def _fsync_tree(root: Path) -> None:
     _fsync_directory(root)
 
 
-def _file_manifest(root: Path) -> dict[str, dict[str, Any]]:
+def _file_manifest(
+    root: Path,
+    *,
+    forbid_hardlinks: bool = False,
+) -> dict[str, dict[str, Any]]:
     result: dict[str, dict[str, Any]] = {}
     for path in sorted(root.rglob("*")):
-        if path.is_symlink():
+        metadata = os.lstat(path)
+        if stat.S_ISLNK(metadata.st_mode):
             raise TruebonesFullBuildError(
                 f"symlink is forbidden inside full generation: {path}"
             )
-        if path.is_file():
-            relpath = path.relative_to(root).as_posix()
-            if relpath == "generation.json":
-                continue
-            result[relpath] = {
-                "sha256": _sha256_file(path),
-                "size_bytes": path.stat().st_size,
-            }
+        if stat.S_ISDIR(metadata.st_mode):
+            continue
+        if not stat.S_ISREG(metadata.st_mode):
+            raise TruebonesFullBuildError(
+                f"special file is forbidden inside full generation: {path}"
+            )
+        if forbid_hardlinks and metadata.st_nlink != 1:
+            raise TruebonesFullBuildError(
+                f"hard-linked file is forbidden inside full generation: {path}"
+            )
+        relpath = path.relative_to(root).as_posix()
+        if relpath == "generation.json":
+            continue
+        result[relpath] = {
+            "sha256": _sha256_file(path),
+            "size_bytes": metadata.st_size,
+        }
     return result
 
 
@@ -728,6 +789,253 @@ def _verify_payload_reference_closure(
         )
 
 
+def _accepted_identity_sha256(records: Sequence[Mapping[str, Any]]) -> str:
+    identity = sorted(
+        (
+            {
+                "clip_id": str(record["clip_id"]),
+                "rig_id": str(record["rig_id"]),
+                "split": str(record["split"]),
+            }
+            for record in records
+        ),
+        key=lambda record: record["clip_id"],
+    )
+    return hashlib.sha256(_canonical_json(identity)).hexdigest()
+
+
+def _source_scope_identity_sha256(
+    accepted: Sequence[Mapping[str, Any]],
+    upstream: Sequence[Mapping[str, Any]],
+    conversion: Sequence[Mapping[str, Any]],
+) -> str:
+    identity = [
+        {
+            "clip_id": str(record["clip_id"]),
+            "rig_id": str(record["rig_id"]),
+            "disposition": disposition,
+        }
+        for disposition, records in (
+            ("accept", accepted),
+            ("upstream_reject", upstream),
+            ("conversion_reject", conversion),
+        )
+        for record in records
+    ]
+    identity.sort(key=lambda record: record["clip_id"])
+    return hashlib.sha256(_canonical_json(identity)).hexdigest()
+
+
+def _verify_selection_identity(
+    generation_root: Path,
+    generation: Mapping[str, Any],
+    manifests: Sequence[Mapping[str, Any]],
+) -> None:
+    expected_selected = sorted(
+        (
+            {
+                "clip_id": str(record["clip_id"]),
+                "rig_id": str(record["rig_id"]),
+                "split": str(record["split"]),
+            }
+            for record in manifests
+        ),
+        key=lambda record: record["clip_id"],
+    )
+    expected_counts = {
+        split: {
+            "selected": sum(record["split"] == split for record in expected_selected)
+        }
+        for split in SPLITS
+    }
+    selection_payloads = {
+        relative: _load_json(generation_root / relative)
+        for relative in (
+            "manifests/full_selection.json",
+            "manifests/prototype_selection.json",
+        )
+    }
+    full_selection = selection_payloads["manifests/full_selection.json"]
+    selection_authority = full_selection.get("selection_authority")
+    if not isinstance(selection_authority, Mapping):
+        raise TruebonesFullBuildError("selection authority is absent")
+    selection_core = {
+        "selection_authority": dict(selection_authority),
+        "selection_counts": expected_counts,
+        "selected": expected_selected,
+    }
+    selection_sha = hashlib.sha256(_canonical_json(selection_core)).hexdigest()
+    for relative, payload in selection_payloads.items():
+        if payload.get("selected") != expected_selected:
+            raise TruebonesFullBuildError(f"selected corpus identity drifted: {relative}")
+        if payload.get("selection_counts") != expected_counts:
+            raise TruebonesFullBuildError(f"selection counts drifted: {relative}")
+        if payload.get("selection_authority") != selection_authority:
+            raise TruebonesFullBuildError(f"selection authority drifted: {relative}")
+        if payload.get("selection_sha256") != selection_sha:
+            raise TruebonesFullBuildError(f"selection hash drifted: {relative}")
+        if int(payload.get("selected_count", -1)) != len(expected_selected):
+            raise TruebonesFullBuildError(f"selection cardinality drifted: {relative}")
+    summary = _load_json(generation_root / "qa/encoder_summary.json")
+    if (
+        summary.get("selection_authority") != selection_authority
+        or summary.get("selection_counts") != expected_counts
+        or summary.get("selection_sha256") != selection_sha
+        or generation.get("selection_sha256") != selection_sha
+    ):
+        raise TruebonesFullBuildError("selection metadata closure drifted")
+    if _accepted_identity_sha256(manifests) != EXPECTED_ACCEPTED_IDENTITY_SHA256:
+        raise TruebonesFullBuildError("accepted corpus identity does not match frozen pin")
+
+
+def verify_postbuild_release_gate_payload(
+    gate: Mapping[str, Any],
+    *,
+    source_generation_id: str,
+    source_generation_json_sha256: str,
+) -> dict[str, Any]:
+    """Verify the exact externally reviewed postbuild evidence statement."""
+    fixed = gate.get("fixed_qa")
+    visual = gate.get("visual_qa")
+    reviewer = visual.get("independent_review") if isinstance(visual, Mapping) else None
+    if set(gate) != {
+        "fixed_qa",
+        "gate_version",
+        "generation_id",
+        "source_generation_json_sha256",
+        "status",
+        "visual_qa",
+    }:
+        raise TruebonesFullBuildError("postbuild release gate schema is not exact")
+    if not isinstance(fixed, Mapping) or set(fixed) != {
+        "J_phys_max",
+        "T_max_observed",
+        "clip_count",
+        "fail_count",
+        "pass_count",
+        "report_sha256",
+        "skeleton_count",
+        "status",
+    }:
+        raise TruebonesFullBuildError("postbuild fixed-QA schema is not exact")
+    if not isinstance(visual, Mapping) or set(visual) != {
+        "artifact_count",
+        "contact_sheet_count",
+        "coordinate_contract",
+        "dynamic_strata",
+        "independent_review",
+        "reviewed_rig_count",
+        "status",
+        "visual_equivalence_report_sha256",
+        "visual_generation_id",
+        "visual_index_sha256",
+    }:
+        raise TruebonesFullBuildError("postbuild visual-QA schema is not exact")
+    if not isinstance(reviewer, Mapping) or set(reviewer) != {
+        "attached_image_count",
+        "model",
+        "reasoning_effort",
+        "report_relpath",
+        "report_sha256",
+        "thread_id",
+        "verdict",
+    }:
+        raise TruebonesFullBuildError("postbuild independent-review schema is not exact")
+    if (
+        gate.get("gate_version") != POSTBUILD_GATE_VERSION
+        or gate.get("status") != "pass"
+        or gate.get("generation_id") != source_generation_id
+        or gate.get("generation_id") != EXPECTED_SOURCE_GENERATION_ID
+        or gate.get("source_generation_json_sha256")
+        != source_generation_json_sha256
+        or gate.get("source_generation_json_sha256")
+        != EXPECTED_SOURCE_GENERATION_JSON_SHA256
+        or fixed.get("status") != "pass"
+        or fixed.get("report_sha256") != EXPECTED_FIXED_QA_REPORT_SHA256
+        or int(fixed.get("clip_count", -1)) != EXPECTED_SCOPE["source_safe_clip_count"]
+        or int(fixed.get("pass_count", -1)) != EXPECTED_SCOPE["source_safe_clip_count"]
+        or int(fixed.get("fail_count", -1)) != 0
+        or int(fixed.get("skeleton_count", -1)) != EXPECTED_SCOPE["encodable_rig_count"]
+        or int(fixed.get("J_phys_max", -1)) != 142
+        or int(fixed.get("T_max_observed", -1)) != 237
+        or visual.get("status") != "pass"
+        or visual.get("visual_generation_id")
+        != EXPECTED_POSTBUILD_VISUAL_GENERATION_ID
+        or int(visual.get("reviewed_rig_count", -1))
+        != EXPECTED_SCOPE["encodable_rig_count"]
+        or int(visual.get("artifact_count", -1))
+        != EXPECTED_SCOPE["encodable_rig_count"] * 3
+        or int(visual.get("contact_sheet_count", -1)) != 11
+        or visual.get("dynamic_strata") != EXPECTED_POSTBUILD_DYNAMIC_STRATA
+        or visual.get("coordinate_contract") != COORDINATE_CONTRACT
+        or visual.get("visual_index_sha256")
+        != EXPECTED_POSTBUILD_VISUAL_INDEX_SHA256
+        or visual.get("visual_equivalence_report_sha256")
+        != EXPECTED_VISUAL_EQUIVALENCE_REPORT_SHA256
+        or reviewer.get("model") != "gpt-5.6-sol"
+        or reviewer.get("reasoning_effort") != "xhigh"
+        or reviewer.get("verdict") != "pass"
+        or reviewer.get("thread_id")
+        != EXPECTED_POSTBUILD_VISUAL_REVIEW_THREAD_ID
+        or reviewer.get("report_relpath")
+        != "release/evidence/truebones_visual_review_gpt56sol.md"
+        or reviewer.get("report_sha256")
+        != EXPECTED_POSTBUILD_VISUAL_REVIEW_SHA256
+        or int(reviewer.get("attached_image_count", -1)) != 19
+    ):
+        raise TruebonesFullBuildError("postbuild release gate evidence drifted")
+    return dict(gate)
+
+
+def _verify_release_ready_metadata(
+    generation_root: Path,
+    generation: Mapping[str, Any],
+) -> None:
+    export = generation.get("distribution_export")
+    if not isinstance(export, Mapping):
+        if generation.get("status") != "numeric_pass_visual_regression_pending":
+            raise TruebonesFullBuildError("complete source generation has unexpected status")
+        if any(
+            generation.get(key) is not False
+            for key in (
+                "postbuild_fixed_qa_complete",
+                "postbuild_visual_regression_complete",
+                "ready_for_training",
+            )
+        ):
+            raise TruebonesFullBuildError("pending source generation has release-ready flags")
+        return
+
+    if generation.get("status") != RELEASE_READY_STATUS:
+        raise TruebonesFullBuildError("private distribution is not release-ready")
+    if any(
+        generation.get(key) is not True
+        for key in (
+            "postbuild_fixed_qa_complete",
+            "postbuild_visual_regression_complete",
+            "ready_for_training",
+        )
+    ):
+        raise TruebonesFullBuildError("private distribution release-ready flags are incomplete")
+    relative = export.get("postbuild_release_gate_relpath")
+    expected_sha = export.get("postbuild_release_gate_sha256")
+    if relative != "evidence/postbuild_release_gate.json":
+        raise TruebonesFullBuildError("private distribution release-gate path drifted")
+    gate_path = generation_root / relative
+    if _sha256_file(gate_path) != expected_sha:
+        raise TruebonesFullBuildError("private distribution release-gate hash drifted")
+    gate = _load_json(gate_path)
+    if _sha256_file(gate_path) != EXPECTED_POSTBUILD_GATE_SHA256:
+        raise TruebonesFullBuildError("private distribution release gate is not pinned")
+    verify_postbuild_release_gate_payload(
+        gate,
+        source_generation_id=str(generation.get("generation_id")),
+        source_generation_json_sha256=str(
+            export.get("source_generation_json_sha256")
+        ),
+    )
+
+
 def verify_full_generation(
     root: str | Path,
     *,
@@ -745,7 +1053,13 @@ def verify_full_generation(
     expected_files = generation.get("files")
     if not isinstance(expected_files, Mapping):
         raise TruebonesFullBuildError("full generation file manifest is absent")
-    observed_files = _file_manifest(generation_root)
+    # Internal immutable build generations intentionally hard-link their pinned
+    # parent artifacts. A hostable distribution must instead be an inode-
+    # independent copy so an alias outside the snapshot cannot mutate it.
+    observed_files = _file_manifest(
+        generation_root,
+        forbid_hardlinks=isinstance(generation.get("distribution_export"), Mapping),
+    )
     if set(observed_files) != set(expected_files):
         raise TruebonesFullBuildError(
             "full generation file closure failed: "
@@ -797,8 +1111,17 @@ def verify_full_generation(
         raise TruebonesFullBuildError("full source scope does not close to 1070 clips")
     if len(upstream) != EXPECTED_SCOPE["upstream_reject_count"]:
         raise TruebonesFullBuildError("upstream reject count drifted")
-    if len(unavailable) != len(EXPECTED_UNAVAILABLE_RIGS):
-        raise TruebonesFullBuildError("unavailable rig count drifted")
+    unavailable_ids = {str(record["rig_id"]) for record in unavailable}
+    if (
+        len(unavailable_ids) != len(unavailable)
+        or unavailable_ids != EXPECTED_UNAVAILABLE_RIGS
+    ):
+        raise TruebonesFullBuildError("unavailable rig identity drifted")
+    if (
+        _source_scope_identity_sha256(manifests, upstream, conversion)
+        != EXPECTED_SOURCE_SCOPE_IDENTITY_SHA256
+    ):
+        raise TruebonesFullBuildError("full source-scope identity does not match frozen pin")
     complete = generation.get("conversion_complete") is True
     if complete and (
         len(manifests) != EXPECTED_SCOPE["source_safe_clip_count"] or conversion
@@ -806,10 +1129,11 @@ def verify_full_generation(
         raise TruebonesFullBuildError("complete generation does not encode all source-safe clips")
     if complete != (generation.get("full_conversion_authorized") is True):
         raise TruebonesFullBuildError("conversion-complete/authorization flags disagree")
-    if complete and generation.get("status") != "numeric_pass_visual_regression_pending":
-        raise TruebonesFullBuildError("complete generation has unexpected status")
+    if complete:
+        _verify_release_ready_metadata(generation_root, generation)
     if not complete and generation.get("status") != "conversion_incomplete":
         raise TruebonesFullBuildError("incomplete generation has unexpected status")
+    _verify_selection_identity(generation_root, generation, manifests)
     referenced_skeletons: dict[str, tuple[str, str]] = {}
     referenced_motions: set[str] = set()
     expected_fps = 30.0

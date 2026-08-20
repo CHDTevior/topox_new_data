@@ -17,22 +17,31 @@ from src.data.ktjd17.codec import SmootherConfig  # noqa: E402
 from src.data.ktjd17.encoder import EncoderConfig  # noqa: E402
 from src.data.ktjd17.prototype import (  # noqa: E402
     PrototypeConfig,
-    default_prototype_config,
     run_prototype_build,
 )
 
 
 def main() -> int:
-    defaults = default_prototype_config(ROOT)
     parser = argparse.ArgumentParser()
-    parser.add_argument("--manifest-root", type=Path, default=defaults.manifest_root)
-    parser.add_argument("--dataset-root", type=Path, default=defaults.dataset_root)
-    parser.add_argument("--output-root", type=Path, default=defaults.output_root)
-    parser.add_argument("--active-cond", type=Path, default=defaults.active_cond_path)
+    parser.add_argument(
+        "--manifest-root",
+        type=Path,
+        default=Path(
+            "dataset/.ktjd17_manifest_generations/"
+            "20260819T145535975831Z-ed48b3fd2745"
+        ),
+    )
+    parser.add_argument("--dataset-root", type=Path, default=Path("dataset"))
+    parser.add_argument("--output-root", type=Path, default=Path("dataset"))
+    parser.add_argument(
+        "--active-cond",
+        type=Path,
+        default=Path("data/current_btjd/cond.npy"),
+    )
     parser.add_argument(
         "--legacy-truebones-cond",
         type=Path,
-        default=defaults.legacy_truebones_cond_path,
+        default=Path("data/legacy_truebones_btjd/cond.npy"),
     )
     parser.add_argument("--fps-target", type=float, default=30.0)
     parser.add_argument("--smoother-cutoff-hz", type=float, default=1.0)

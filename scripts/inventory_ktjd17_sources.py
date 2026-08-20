@@ -19,39 +19,50 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from src.data.ktjd17.inventory import (  # noqa: E402
     InventoryConfig,
-    default_inventory_config,
     run_inventory,
 )
 
 
 def _parser() -> argparse.ArgumentParser:
-    defaults = default_inventory_config(REPO_ROOT)
     parser = argparse.ArgumentParser(
         description=(
             "Inventory live BTJD-13 clips against BVH/MotionStreamer rotation "
             "authorities without decoding legacy 13D rotations."
         )
     )
-    parser.add_argument("--dataset-root", type=Path, default=defaults.dataset_root)
-    parser.add_argument("--split-root", type=Path, default=defaults.split_root)
-    parser.add_argument("--pz-bvh-root", type=Path, default=defaults.pz_bvh_root)
+    parser.add_argument("--dataset-root", type=Path, default=Path("data/current_btjd"))
+    parser.add_argument("--split-root", type=Path, default=Path("data/holdout_splits_v1"))
     parser.add_argument(
-        "--truebones-raw-root", type=Path, default=defaults.truebones_raw_root
+        "--pz-bvh-root",
+        type=Path,
+        default=Path("data/optional_additional_sources/planetzoo_bvhs"),
     )
-    parser.add_argument("--human272-root", type=Path, default=defaults.human272_root)
-    parser.add_argument("--output-root", type=Path, default=defaults.output_root)
     parser.add_argument(
-        "--human-builder-path", type=Path, default=defaults.human_builder_path
+        "--truebones-raw-root", type=Path, default=Path("data/truebones_raw")
+    )
+    parser.add_argument(
+        "--human272-root",
+        type=Path,
+        default=Path("data/optional_additional_sources/human272"),
+    )
+    parser.add_argument("--output-root", type=Path, default=Path("dataset/manifests"))
+    parser.add_argument(
+        "--human-builder-path",
+        type=Path,
+        required=True,
+        help="repository-relative path to the audited Human source builder",
     )
     parser.add_argument(
         "--smpl-neutral-model-path",
         type=Path,
-        default=defaults.smpl_neutral_model_path,
+        required=True,
+        help="repository-relative path to the authorized neutral SMPL model",
     )
     parser.add_argument(
         "--planetzoo-lineage-path",
         type=Path,
-        default=defaults.planetzoo_lineage_path,
+        required=True,
+        help="repository-relative path to the Planet Zoo lineage record",
     )
     parser.add_argument("--workers", type=int, default=16)
     parser.add_argument("--prototype-min-train-clips", type=int, default=30)

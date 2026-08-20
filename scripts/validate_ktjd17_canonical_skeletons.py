@@ -23,17 +23,12 @@ def main() -> int:
     parser.add_argument(
         "--manifest-root",
         type=Path,
-        default=REPO_ROOT / "dataset" / "manifests",
+        default=Path("dataset/manifests"),
     )
     parser.add_argument(
         "--report",
         type=Path,
-        default=(
-            REPO_ROOT
-            / "dataset"
-            / "validation_reports"
-            / "canonical_skeleton_validation.json"
-        ),
+        default=Path("outputs/canonical_skeleton_validation.json"),
     )
     args = parser.parse_args()
     immutable_manifest = args.manifest_root.expanduser().resolve()

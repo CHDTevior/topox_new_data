@@ -28,7 +28,7 @@ def main() -> int:
     parser.add_argument(
         "--manifest-root",
         type=Path,
-        default=REPO_ROOT / "dataset" / "manifests",
+        default=Path("dataset/manifests"),
         help=(
             "Immutable direct T03 manifest generation. After T04 is active, pass "
             "dataset/.ktjd17_manifest_generations/<T03_ID> explicitly."
@@ -37,12 +37,12 @@ def main() -> int:
     parser.add_argument(
         "--skeleton-output-root",
         type=Path,
-        default=REPO_ROOT / "dataset" / "skeletons",
+        default=Path("dataset/skeletons"),
     )
     parser.add_argument(
         "--manifest-output-root",
         type=Path,
-        default=REPO_ROOT / "dataset" / "manifests",
+        default=Path("dataset/manifests"),
     )
     parser.add_argument(
         "--overwrite",

@@ -23,13 +23,42 @@ from src.data.ktjd17.freeze import (  # noqa: E402
 def main() -> int:
     defaults = default_freeze_config(ROOT)
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--prototype-root", type=Path, default=defaults.prototype_root)
-    parser.add_argument("--fixed-qa-report", type=Path, default=defaults.fixed_qa_report)
-    parser.add_argument("--calibration-root", type=Path, default=defaults.calibration_root)
-    parser.add_argument("--visual-root", type=Path, default=defaults.visual_root)
-    parser.add_argument("--codex-review", type=Path, default=defaults.codex_review)
+    parser.add_argument(
+        "--prototype-root",
+        type=Path,
+        default=Path(
+            "dataset/.ktjd17_motion_generations/"
+            "20260819T175812150524Z-7e7115d87c89"
+        ),
+    )
+    parser.add_argument(
+        "--fixed-qa-report",
+        type=Path,
+        default=Path("outputs/ktjd17_t08_fixed_qa.json"),
+    )
+    parser.add_argument(
+        "--calibration-root",
+        type=Path,
+        default=Path(
+            "dataset/.ktjd17_calibration_generations/"
+            "20260819T184426865851Z-d3e11ee4b327"
+        ),
+    )
+    parser.add_argument(
+        "--visual-root",
+        type=Path,
+        default=Path(
+            "dataset/.ktjd17_visual_qa_generations/"
+            "20260819T184450911885Z-020d74cdf492"
+        ),
+    )
+    parser.add_argument(
+        "--codex-review",
+        type=Path,
+        default=Path("outputs/ktjd17_calibration_visual_review.md"),
+    )
     parser.add_argument("--codex-thread-id", default=defaults.codex_thread_id)
-    parser.add_argument("--output-root", type=Path, default=defaults.output_root)
+    parser.add_argument("--output-root", type=Path, default=Path("dataset"))
     parser.add_argument("--no-update-link", action="store_true")
     args = parser.parse_args()
     result = run_freeze(
