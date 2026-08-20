@@ -86,10 +86,10 @@ which pins the private repository, immutable remote revision, corpus identity,
 release pointer, and `generation.json`. The trust-record path and revision have
 no command-line override; an unpublished `null` revision fails before any
 network call. It rejects absolute paths, `..`
-escapes, symlink escapes, existing destinations, special files, hard links,
+escapes, internal or unrecognized symlink escapes, existing destinations, special files, hard links,
 unsafe file modes, hidden/traversing NPZ members, and unexpected snapshot-root
-entries. Download happens in a fresh staging directory and is atomically,
-no-clobber installed only after checking the release pointer,
+entries. Download happens in a fresh staging directory and is no-clobber
+installed only after checking the release pointer,
 the pinned `generation.json` digest, every immutable file hash/size, all
 manifest-to-NPZ references, split closure, and the 986 accepted clips. The validator accepts
 the snapshot root shown above and resolves its versioned generation safely.
@@ -98,6 +98,19 @@ rigid edges, velocities, headings, contacts, and root-only channels without
 requiring proprietary BVH files. Data owners can additionally use
 `--source-backed` inside the complete build workspace; that mode intentionally
 requires the original source files and parent manifests.
+
+On filesystems that do not support `renameat2(RENAME_NOREPLACE)`, including the
+tested GPFS deployment, the fully verified sibling payload is published through
+one atomic, no-clobber relative symlink creation. The requested `--local-dir`
+therefore appears as a symlink such as `data/ktjd17_truebones`; its hidden sibling
+target has the frozen form `.ktjd17_truebones.payload-*`. All documented dataset
+paths continue to work through that alias, and the validator accepts only this
+single bounded top-level alias form while still rejecting symlinks inside the
+release. The payload directory is never copied, exposed half-built, or replaced.
+If publication is attempted but fails, any concurrent destination is preserved
+and the already verified hidden payload is retained for inspection; remove that
+exact `.payload-*` sibling manually before retrying. Transport or verification
+failures before publication still remove their private partial payload.
 
 The published Truebones v1 scope is deliberately exact: the upstream catalog
 names 70 rigs, 66 have usable authoritative BVH rotations, and 4 are unavailable

@@ -57,7 +57,10 @@ def main() -> int:
     if args.max_gif_frames < 2:
         parser.error("--max-gif-frames must be at least 2")
     dataset_input = resolve_repository_path(
-        ROOT, args.dataset_root, argument_name="--dataset-root"
+        ROOT,
+        args.dataset_root,
+        argument_name="--dataset-root",
+        preserve_leaf=True,
     )
     output_root = resolve_repository_path(
         ROOT, args.output_root, argument_name="--output-root"

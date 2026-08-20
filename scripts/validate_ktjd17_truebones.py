@@ -68,7 +68,10 @@ def main() -> int:
     )
     args = parser.parse_args()
     dataset_input = resolve_repository_path(
-        ROOT, args.dataset_root, argument_name="--dataset-root"
+        ROOT,
+        args.dataset_root,
+        argument_name="--dataset-root",
+        preserve_leaf=True,
     )
     output = resolve_repository_path(ROOT, args.output, argument_name="--output")
     if args.source_backed:

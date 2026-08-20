@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
+import stat
 import sys
 import tempfile
 import unittest
@@ -118,7 +120,16 @@ class RepositoryPathTests(unittest.TestCase):
             root = Path(directory)
             (root / "data").mkdir()
             (root / "data/existing").mkdir()
-            for value in (".", ".git", "scripts", "README.md", "data", "data/existing"):
+            (root / "data/dangling").symlink_to("owner-chosen")
+            for value in (
+                ".",
+                ".git",
+                "scripts",
+                "README.md",
+                "data",
+                "data/existing",
+                "data/dangling",
+            ):
                 with self.subTest(value=value), self.assertRaises(PrivateReleaseError):
                     resolve_repository_path(
                         root,
@@ -138,6 +149,25 @@ class RepositoryPathTests(unittest.TestCase):
                 ),
                 expected,
             )
+
+    def test_preserved_leaf_reaches_the_bounded_alias_validator(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            data = root / "data"
+            owner = data / "owner"
+            owner.mkdir(parents=True)
+            _generation, trust = _make_pointer_snapshot(owner)
+            alias = data / "snapshot"
+            alias.symlink_to(owner.name)
+            preserved = resolve_repository_path(
+                root,
+                "data/snapshot",
+                argument_name="--dataset-root",
+                preserve_leaf=True,
+            )
+            self.assertTrue(preserved.is_symlink())
+            with self.assertRaisesRegex(PrivateReleaseError, "frozen scheme"):
+                resolve_release_generation(preserved, trusted_release=trust)
 
 
 class SanitizerTests(unittest.TestCase):
@@ -440,6 +470,53 @@ class ReleasePointerTests(unittest.TestCase):
             with self.assertRaisesRegex(PrivateReleaseError, "RELEASE.json"):
                 resolve_release_generation(root, trusted_release=trust)
 
+    def test_resolves_only_the_downloader_bounded_relative_alias(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory)
+            payload = parent / ".snapshot.payload-token"
+            payload.mkdir()
+            generation, trust = _make_pointer_snapshot(payload)
+            alias = parent / "snapshot"
+            alias.symlink_to(payload.name)
+            self.assertEqual(
+                resolve_release_generation(alias, trusted_release=trust),
+                generation.resolve(),
+            )
+
+        bad_targets = (
+            "owner",
+            "../.snapshot.payload-token",
+            "/" + "tmp/.snapshot.payload-token",
+        )
+        for target in bad_targets:
+            with self.subTest(target=target), tempfile.TemporaryDirectory() as directory:
+                parent = Path(directory)
+                alias = parent / "snapshot"
+                alias.symlink_to(target)
+                with self.assertRaisesRegex(PrivateReleaseError, "frozen scheme"):
+                    resolve_release_generation(
+                        alias,
+                        trusted_release=_trust_record(
+                            "generation-v1", "0" * 64, "1" * 64
+                        ),
+                    )
+
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory)
+            real_payload = parent / "real-payload"
+            real_payload.mkdir()
+            payload_alias = parent / ".snapshot.payload-token"
+            payload_alias.symlink_to(real_payload.name)
+            snapshot_alias = parent / "snapshot"
+            snapshot_alias.symlink_to(payload_alias.name)
+            with self.assertRaisesRegex(PrivateReleaseError, "real directory"):
+                resolve_release_generation(
+                    snapshot_alias,
+                    trusted_release=_trust_record(
+                        "generation-v1", "0" * 64, "1" * 64
+                    ),
+                )
+
 
 class PostbuildGateTests(unittest.TestCase):
     def test_public_gate_and_reviewer_are_both_hash_pinned(self) -> None:
@@ -525,7 +602,8 @@ class DownloaderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root, _trust = self._root_and_trust(directory)
             (root / "data/existing").mkdir(parents=True)
-            for local_dir in ("../outside", "data/existing"):
+            (root / "data/dangling").symlink_to("owner-chosen")
+            for local_dir in ("../outside", "data/existing", "data/dangling"):
                 with self.subTest(local_dir=local_dir), mock.patch.object(
                     downloader, "ROOT", root
                 ), mock.patch.object(
@@ -564,7 +642,132 @@ class DownloaderTests(unittest.TestCase):
                 with self.assertRaisesRegex(SystemExit, "transport failed"):
                     downloader.main()
             self.assertFalse((root / "data/snapshot").exists())
-            self.assertEqual(list((root / "data").glob(".snapshot.download-*")), [])
+            self.assertEqual(list((root / "data").glob(".snapshot.payload-*")), [])
+
+    def test_unsupported_renameat2_uses_an_atomic_relative_alias(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(
+            downloader,
+            "_rename_directory_noreplace_errno",
+            return_value=errno.EINVAL,
+        ):
+            root = Path(directory)
+            destination = root / "destination"
+            source = root / ".destination.payload-token"
+            source.mkdir()
+            (source / "payload").write_text("ready\n", encoding="utf-8")
+            downloader._publish_directory_noreplace(source, destination)
+            self.assertTrue(destination.is_symlink())
+            self.assertEqual(os.readlink(destination), source.name)
+            self.assertTrue(source.is_dir())
+            self.assertEqual((destination / "payload").read_text(), "ready\n")
+
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(
+            downloader,
+            "_rename_directory_noreplace_errno",
+            return_value=errno.EINVAL,
+        ):
+            root = Path(directory)
+            destination = root / "destination"
+            source = root / ".destination.payload-token"
+            source.mkdir()
+            destination.mkdir()
+            (destination / "owner").write_text("keep\n", encoding="utf-8")
+            with self.assertRaisesRegex(PrivateReleaseError, "destination appeared"):
+                downloader._publish_directory_noreplace(source, destination)
+            self.assertTrue(source.is_dir())
+            self.assertEqual((destination / "owner").read_text(), "keep\n")
+
+    def test_fallback_atomic_create_preserves_a_concurrent_destination(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(
+            downloader,
+            "_rename_directory_noreplace_errno",
+            return_value=errno.EINVAL,
+        ):
+            root = Path(directory)
+            destination = root / "destination"
+            source = root / ".destination.payload-token"
+            source.mkdir()
+            (source / "payload").write_text("ready\n", encoding="utf-8")
+            real_symlink = os.symlink
+
+            def create_owner_then_link(*args: object, **kwargs: object) -> None:
+                destination.mkdir()
+                (destination / "owner").write_text("keep\n", encoding="utf-8")
+                real_symlink(*args, **kwargs)
+
+            with mock.patch.object(
+                downloader.os, "symlink", side_effect=create_owner_then_link
+            ), self.assertRaisesRegex(PrivateReleaseError, "destination appeared"):
+                downloader._publish_directory_noreplace(source, destination)
+            self.assertEqual((destination / "owner").read_text(), "keep\n")
+            self.assertEqual((source / "payload").read_text(), "ready\n")
+
+    def test_fallback_detects_alias_replacement_without_deleting_it(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(
+            downloader,
+            "_rename_directory_noreplace_errno",
+            return_value=errno.EINVAL,
+        ):
+            root = Path(directory)
+            destination = root / "destination"
+            source = root / ".destination.payload-token"
+            owner = root / "owner"
+            source.mkdir()
+            owner.mkdir()
+            (source / "payload").write_text("ready\n", encoding="utf-8")
+            (owner / "keep").write_text("keep\n", encoding="utf-8")
+            real_readlink = os.readlink
+            replaced = False
+
+            def replace_before_readlink(*args: object, **kwargs: object) -> str:
+                nonlocal replaced
+                if not replaced:
+                    destination.unlink()
+                    destination.symlink_to(owner.name)
+                    replaced = True
+                return real_readlink(*args, **kwargs)
+
+            with mock.patch.object(
+                downloader.os, "readlink", side_effect=replace_before_readlink
+            ), self.assertRaisesRegex(PrivateReleaseError, "alias changed"):
+                downloader._publish_directory_noreplace(source, destination)
+            self.assertEqual(os.readlink(destination), owner.name)
+            self.assertEqual((destination / "keep").read_text(), "keep\n")
+            self.assertEqual((source / "payload").read_text(), "ready\n")
+
+    def test_fallback_detects_payload_name_replacement(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(
+            downloader,
+            "_rename_directory_noreplace_errno",
+            return_value=errno.EINVAL,
+        ):
+            root = Path(directory)
+            destination = root / "destination"
+            source = root / ".destination.payload-token"
+            displaced = root / "displaced"
+            source.mkdir()
+            (source / "payload").write_text("ready\n", encoding="utf-8")
+            real_stat = os.stat
+            replaced = False
+
+            def replace_before_payload_rebind(
+                *args: object, **kwargs: object
+            ) -> os.stat_result:
+                nonlocal replaced
+                if args and args[0] == source.name and not replaced:
+                    source.rename(displaced)
+                    source.mkdir()
+                    (source / "owner").write_text("keep\n", encoding="utf-8")
+                    replaced = True
+                return real_stat(*args, **kwargs)
+
+            with mock.patch.object(
+                downloader.os, "stat", side_effect=replace_before_payload_rebind
+            ), self.assertRaisesRegex(PrivateReleaseError, "payload directory changed"):
+                downloader._publish_directory_noreplace(source, destination)
+            self.assertEqual((source / "owner").read_text(), "keep\n")
+            self.assertEqual((displaced / "payload").read_text(), "ready\n")
+            self.assertEqual(os.readlink(destination), source.name)
 
     def test_success_is_published_only_after_all_verifiers_pass(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -589,17 +792,22 @@ class DownloaderTests(unittest.TestCase):
             ) as snapshot, mock.patch.object(
                 downloader, "validate_private_distribution", return_value=qa
             ), mock.patch.object(
+                downloader,
+                "_rename_directory_noreplace_errno",
+                return_value=errno.EINVAL,
+            ), mock.patch.object(
                 sys,
                 "argv",
                 ["download_private_dataset.py", "--local-dir", "data/snapshot"],
             ):
                 self.assertEqual(downloader.main(), 0)
+            self.assertTrue((root / "data/snapshot").is_symlink())
             self.assertTrue((root / "data/snapshot/generation-v1").is_dir())
             kwargs = snapshot.call_args.kwargs
             self.assertEqual(kwargs["revision"], trust["hf_revision"])
             self.assertNotIn("README.md", kwargs["allow_patterns"])
 
-    def test_concurrent_destination_is_preserved_and_stage_rolls_back(self) -> None:
+    def test_concurrent_destination_preserves_owner_and_verified_payload(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root, trust = self._root_and_trust(directory)
 
@@ -637,7 +845,9 @@ class DownloaderTests(unittest.TestCase):
                 (root / "data/snapshot/owner.txt").read_text(encoding="utf-8"),
                 "keep\n",
             )
-            self.assertEqual(list((root / "data").glob(".snapshot.download-*")), [])
+            retained = list((root / "data").glob(".snapshot.payload-*"))
+            self.assertEqual(len(retained), 1)
+            self.assertTrue((retained[0] / "generation-v1").is_dir())
 
 
 if __name__ == "__main__":

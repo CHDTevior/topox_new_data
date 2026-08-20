@@ -30,17 +30,26 @@ python scripts/validate_ktjd17_truebones.py \
 下载脚本从 [release/truebones_v1.json](../release/truebones_v1.json) 读取
 private 仓库、不可变远端 revision、语料身份、release pointer 与 generation
 摘要。trust record 路径和 revision 都不能由命令行覆盖；若 revision 尚为
-`null`，脚本会在任何网络调用前失败。它会拒绝绝对路径、`..`、软链接逃逸、
+`null`，脚本会在任何网络调用前失败。它会拒绝绝对路径、`..`、内部或未识别的软链接逃逸、
 已存在的目标、特殊文件、硬链接、危险文件 mode、NPZ 隐藏/越界成员和
-snapshot 根目录额外条目；先下载到临时 staging，并以原子、禁止覆盖的方式发布，
+snapshot 根目录额外条目；先下载到临时 staging，并以禁止覆盖的方式发布，
 只有在 release pointer、
 `generation.json` 摘要、全文件哈希/大小闭包、manifest-to-NPZ 引用、split
-闭包和 986 条 accepted clip 均通过后，才会原子安装并返回成功。验证脚本可以直接接收
+闭包和 986 条 accepted clip 均通过后，才会安装并返回成功。验证脚本可以直接接收
 上面的 snapshot 根目录，并安全解析其中的版本化 generation。
 distribution QA 会逐条解码全部 986 个 clip，并检查 direct/FK、骨长刚性、
 速度、heading、contact 与 root-only channels。数据所有者若在完整构建工作区
 内还要复跑依赖原始 BVH 的 fixed QA，可显式添加 `--source-backed`；下载后的
 独立数据目录不需要、也不包含那些上游文件。
+
+在不支持 `renameat2(RENAME_NOREPLACE)` 的文件系统（包括已测试的 GPFS）上，
+下载器会用一次原子的、禁止覆盖的相对软链接创建来发布已经完整验证的同级 payload。
+因此请求的 `--local-dir`（例如 `data/ktjd17_truebones`）会显示为软链接，其隐藏同级
+目标遵循固定命名 `.ktjd17_truebones.payload-*`。所有文档中的数据路径都可直接通过
+这个别名使用；验证器只允许这一种受限的顶层别名，release 内部软链接仍一律拒绝。
+payload 不会被复制、半成品暴露或覆盖。若已经进入发布阶段后失败，并发目标会原样
+保留，已验证的隐藏 payload 也会保留供检查；重试前人工删除精确的 `.payload-*`
+同级目录。进入发布前的传输或验证失败仍会自动清理私有半成品。
 
 数据仓库必须保持 private。Truebones 条款禁止重新分发；不要把下载后的
 motion、skeleton 或可逆派生表示上传到 public GitHub/Hugging Face。

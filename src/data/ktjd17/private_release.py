@@ -205,8 +205,9 @@ def resolve_repository_path(
     argument_name: str,
     required_top_level: str | None = None,
     must_not_exist: bool = False,
+    preserve_leaf: bool = False,
 ) -> Path:
-    """Resolve a user path and require it to stay inside the repository."""
+    """Resolve parents safely while optionally preserving the final path entry."""
     root = Path(repository_root).resolve()
     text = str(value)
     normalized = text.replace("\\", "/")
@@ -225,7 +226,23 @@ def resolve_repository_path(
         raise PrivateReleaseError(
             f"{argument_name} must be below {required_top_level}/"
         )
-    candidate = (root / raw).resolve()
+    unresolved = root / raw
+    if must_not_exist:
+        try:
+            os.lstat(unresolved)
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            raise PrivateReleaseError(
+                f"cannot inspect {argument_name} destination: {exc}"
+            ) from exc
+        else:
+            raise PrivateReleaseError(f"{argument_name} destination already exists")
+    candidate = (
+        unresolved.parent.resolve() / unresolved.name
+        if preserve_leaf or must_not_exist
+        else unresolved.resolve()
+    )
     try:
         candidate.relative_to(root)
     except ValueError as exc:
@@ -238,8 +255,6 @@ def resolve_repository_path(
             raise PrivateReleaseError(
                 f"{argument_name} must name a child below {required_top_level}/"
             )
-    if must_not_exist and (candidate.exists() or candidate.is_symlink()):
-        raise PrivateReleaseError(f"{argument_name} destination already exists")
     return candidate
 
 
@@ -356,6 +371,40 @@ def _require_directory_no_link(path: Path, *, label: str) -> None:
         raise PrivateReleaseError(f"{label} must be a real directory")
 
 
+def _resolve_snapshot_root(snapshot_root: str | Path) -> Path:
+    """Resolve a real snapshot or the downloader's bounded sibling alias."""
+    raw = Path(snapshot_root)
+    try:
+        metadata = os.lstat(raw)
+    except OSError as exc:
+        raise PrivateReleaseError(
+            f"release snapshot root is unavailable: {exc}"
+        ) from exc
+    if stat.S_ISDIR(metadata.st_mode):
+        return raw.resolve()
+    if not stat.S_ISLNK(metadata.st_mode):
+        raise PrivateReleaseError("release snapshot root must be a real directory")
+
+    target_text = os.readlink(raw)
+    target = PurePosixPath(target_text)
+    expected_prefix = f".{raw.name}.payload-"
+    if (
+        target.is_absolute()
+        or len(target.parts) != 1
+        or target.name in {"", ".", ".."}
+        or "\\" in target_text
+        or not target.name.startswith(expected_prefix)
+    ):
+        raise PrivateReleaseError("release snapshot alias target is outside the frozen scheme")
+    parent = raw.parent.resolve()
+    unresolved = parent / target.name
+    _require_directory_no_link(unresolved, label="release snapshot alias payload")
+    resolved = unresolved.resolve()
+    if resolved.parent != parent:
+        raise PrivateReleaseError("release snapshot alias payload escaped its parent")
+    return resolved
+
+
 def _assert_snapshot_root_closure(snapshot: Path, generation_subdir: str) -> None:
     expected = {RELEASE_POINTER_NAME, generation_subdir}
     observed = {path.name for path in snapshot.iterdir()}
@@ -375,9 +424,7 @@ def resolve_release_generation(
     trust = _validate_trusted_release_record(
         trusted_release, require_hf_revision=False
     )
-    raw_snapshot = Path(snapshot_root)
-    _require_directory_no_link(raw_snapshot, label="release snapshot root")
-    snapshot = raw_snapshot.resolve()
+    snapshot = _resolve_snapshot_root(snapshot_root)
     pointer_path = snapshot / RELEASE_POINTER_NAME
     pointer_sha = _sha256_regular_file(pointer_path, label=RELEASE_POINTER_NAME)
     if pointer_sha != trust["release_pointer_sha256"]:
@@ -1492,9 +1539,10 @@ def validate_private_distribution(
         root, trusted_release=trusted_release
     )
     verify_full_generation_file_closure(generation_root, require_complete=True)
-    _preflight_private_release_structure(Path(root))
+    snapshot_root = generation_root.parent
+    _preflight_private_release_structure(snapshot_root)
     generation = verify_full_generation(generation_root, require_complete=True)
-    _assert_no_absolute_machine_paths(Path(root))
+    _assert_no_absolute_machine_paths(snapshot_root)
     _verify_postbuild_evidence_bundle(generation_root)
     manifests = [
         json.loads(line)
