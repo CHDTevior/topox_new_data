@@ -1,0 +1,81 @@
+# KTJD-17 数据处理使用说明
+
+## 坐标和格式
+
+固定约定为右手系、`Y+` 正上方、`XZ` 地面、canonical rest forward 为
+`+Z`。透视可视化中 `Y+` 朝屏幕上方，`+Z` 朝屏幕外、指向观察者。
+
+motion 文件是未 padding、未 normalization 的
+`float32 [T_valid,J_phys,17]`。通道定义见 [FORMAT.md](FORMAT.md)。非 root
+关节的 `13:17` 必须是精确零，并由 `channel_valid_mask` 排除。
+
+## 下载 private 数据
+
+先完成 Hugging Face 登录，然后下载到仓库内的相对路径：
+
+```bash
+hf auth login
+python scripts/download_private_dataset.py \
+  --repo-id Tevior/KTJD17-Truebones-v1 \
+  --local-dir data/ktjd17_truebones
+```
+
+运行无需原始 BVH 的 distribution QA：
+
+```bash
+python scripts/validate_ktjd17_truebones.py \
+  --dataset-root data/ktjd17_truebones \
+  --output outputs/ktjd17_truebones_distribution_qa.json
+```
+
+下载脚本会拒绝绝对路径、`..` 和软链接逃逸；只有在 release pointer、
+`generation.json` 摘要、全文件哈希/大小闭包、manifest-to-NPZ 引用、split
+闭包和 986 条 accepted clip 均通过后，才会返回成功。验证脚本可以直接接收
+上面的 snapshot 根目录，并安全解析其中的版本化 generation。
+distribution QA 会逐条解码全部 986 个 clip，并检查 direct/FK、骨长刚性、
+速度、heading、contact 与 root-only channels。数据所有者若在完整构建工作区
+内还要复跑依赖原始 BVH 的 fixed QA，可显式添加 `--source-backed`；下载后的
+独立数据目录不需要、也不包含那些上游文件。
+
+数据仓库必须保持 private。Truebones 条款禁止重新分发；不要把下载后的
+motion、skeleton 或可逆派生表示上传到 public GitHub/Hugging Face。
+
+## 读取和训练视图
+
+最小读取与双路径解码示例见根目录 [README.md](../README.md)。训练时通过
+`build_model_view` 在线完成 crop、yaw、train-only gains normalization 和
+padding。当前 Graph-CodeFlow 合同是：
+
+- `T_fine_max=300`
+- `temporal_stride=4`
+- `T_lat_max=75`
+
+不要退回固定 64 帧或 16 个 latent steps。
+
+## 重建顺序
+
+完整重建必须依次通过：源库存、source-FK、canonical skeleton、六类
+prototype、数值 QA、动态透视 QA、train-only calibration freeze、全 rig
+forward audit、全量转换、全量 fixed QA、后构建动态可视化。
+
+所有输入输出都用仓库相对路径，例如 `data/`、`dataset/` 和 `outputs/`；
+不要把服务器绝对路径、主机名或凭证写进配置、说明或提交历史。
+
+发布前运行：
+
+```bash
+bash scripts/check_public_release.sh
+```
+
+若需要由数据所有者更新 private Hugging Face 数据，先生成不含服务器路径的
+发布副本：
+
+```bash
+python scripts/prepare_private_dataset_release.py \
+  --source-generation dataset/ktjd17_truebones \
+  --output-parent dataset/private_release
+```
+
+该步骤保持 motion payload 字节不变，将机器本地 provenance 路径改为稳定
+相对标签，重算受影响的 skeleton/reference 哈希，再次执行完整闭包验证，
+并生成下载器强制校验的 hash-pinned `RELEASE.json`。
