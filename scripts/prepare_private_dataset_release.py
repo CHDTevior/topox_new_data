@@ -41,6 +41,30 @@ def main() -> int:
         required=True,
         help="repository-relative signed fixed-QA and visual-review gate",
     )
+    parser.add_argument(
+        "--fixed-qa-report",
+        type=Path,
+        required=True,
+        help="repository-relative 986-clip fixed-QA report",
+    )
+    parser.add_argument(
+        "--visual-generation",
+        type=Path,
+        required=True,
+        help="repository-relative 66-rig visual generation",
+    )
+    parser.add_argument(
+        "--visual-equivalence-report",
+        type=Path,
+        required=True,
+        help="repository-relative postbuild visual equivalence report",
+    )
+    parser.add_argument(
+        "--review-contact-sheets",
+        type=Path,
+        required=True,
+        help="repository-relative directory containing the 11 reviewed sheets",
+    )
     args = parser.parse_args()
     try:
         source = resolve_repository_path(
@@ -52,8 +76,30 @@ def main() -> int:
         gate = resolve_repository_path(
             ROOT, args.postbuild_gate, argument_name="--postbuild-gate"
         )
+        fixed_qa = resolve_repository_path(
+            ROOT, args.fixed_qa_report, argument_name="--fixed-qa-report"
+        )
+        visual = resolve_repository_path(
+            ROOT, args.visual_generation, argument_name="--visual-generation"
+        )
+        equivalence = resolve_repository_path(
+            ROOT,
+            args.visual_equivalence_report,
+            argument_name="--visual-equivalence-report",
+        )
+        contact_sheets = resolve_repository_path(
+            ROOT,
+            args.review_contact_sheets,
+            argument_name="--review-contact-sheets",
+        )
         result = prepare_private_distribution(
-            source, output, postbuild_gate=gate
+            source,
+            output,
+            postbuild_gate=gate,
+            fixed_qa_report=fixed_qa,
+            visual_generation=visual,
+            visual_equivalence_report=equivalence,
+            review_contact_sheets=contact_sheets,
         )
     except (PrivateReleaseError, TruebonesFullBuildError) as exc:
         parser.error(str(exc))

@@ -79,6 +79,33 @@ class PublicReleaseGuardTests(unittest.TestCase):
             ):
                 self.assertIn(expected, result.stdout)
 
+    def test_decoded_json_path_and_unexpected_executable_mode_fail(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self._repo(directory)
+            (root / "encoded.json").write_bytes(
+                b'{"path":"\\u002firidisfs\\u002fprivate"}\n'
+            )
+            executable = root / "metadata.json"
+            executable.write_text("{}\n", encoding="utf-8")
+            executable.chmod(0o755)
+            subprocess.run(("git", "add", "."), cwd=root, check=True)
+            result = self._run(root)
+            self.assertNotEqual(result.returncode, 0, result.stdout)
+            self.assertIn("POSIX machine path in decoded Git index", result.stdout)
+            self.assertIn("unexpected executable Git mode", result.stdout)
+
+    def test_decoded_python_bytes_literal_path_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self._repo(directory)
+            (root / "encoded.py").write_text(
+                "LEAK = b'\\x2firidisfs\\x2fprivate'\n",
+                encoding="utf-8",
+            )
+            subprocess.run(("git", "add", "."), cwd=root, check=True)
+            result = self._run(root)
+            self.assertNotEqual(result.returncode, 0, result.stdout)
+            self.assertIn("decoded Python bytes", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

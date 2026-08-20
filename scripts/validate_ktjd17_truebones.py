@@ -18,7 +18,7 @@ if str(ROOT) not in sys.path:
 
 from src.data.ktjd17.fixed_qa import validate_prototype  # noqa: E402
 from src.data.ktjd17.private_release import (  # noqa: E402
-    load_trusted_release,
+    load_published_truebones_release,
     resolve_repository_path,
     validate_private_distribution,
 )
@@ -62,12 +62,6 @@ def main() -> int:
         default=Path("outputs/ktjd17_truebones_qa.json"),
     )
     parser.add_argument(
-        "--trust-record",
-        type=Path,
-        default=Path("release/truebones_v1.json"),
-        help="repository-relative public trust record for standalone QA",
-    )
-    parser.add_argument(
         "--source-backed",
         action="store_true",
         help="also require the proprietary BVH and parent-manifest build workspace",
@@ -100,10 +94,9 @@ def main() -> int:
         if not conversion_complete:
             report["status"] = "fail"
     else:
-        trust_path = resolve_repository_path(
-            ROOT, args.trust_record, argument_name="--trust-record"
+        trust = load_published_truebones_release(
+            ROOT / "release/truebones_v1.json", require_hf_revision=True
         )
-        trust = load_trusted_release(trust_path)
         report = validate_private_distribution(
             dataset_input, trusted_release=trust
         )

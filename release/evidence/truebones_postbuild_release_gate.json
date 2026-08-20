@@ -5,11 +5,11 @@
     "clip_count": 986,
     "fail_count": 0,
     "pass_count": 986,
-    "report_sha256": "fcf6fb1ce9ede7e1db035dd7c617631e8f729532d35e1ce79e6694029129f1ae",
+    "report_sha256": "23ecbdabdc8f5801120ee95215efd55b15ba69ed9e80007636ff54c82ea8cede",
     "skeleton_count": 66,
     "status": "pass"
   },
-  "gate_version": "ktjd17-truebones-postbuild-gate-v1",
+  "gate_version": "ktjd17-truebones-postbuild-gate-v2",
   "generation_id": "20260819T215405576671Z-2d04a8d85638",
   "source_generation_json_sha256": "46a0d011a47e09fc5451aa97de5fe9d01a561465a8a09ae8bec75e36a9fd6484",
   "status": "pass",
@@ -38,8 +38,8 @@
     },
     "reviewed_rig_count": 66,
     "status": "pass",
-    "visual_equivalence_report_sha256": "73e29dd5039c110df41a1b8f1939458ef9570a403589b8024340cf26fa8df4ba",
+    "visual_equivalence_report_sha256": "02c92f819d4f3527b38852705e1abdd85957ace815f7ec6924aad2205f3e49c7",
     "visual_generation_id": "20260819T215929053759Z-faf7ba07b6f5",
-    "visual_index_sha256": "6754c9d8f909fe11f04c44e3499c69f49c1c524eade9e4634c9a3827755b3992"
+    "visual_index_sha256": "78e2cd86202b952b2e8fc475f03e1a1ac5dbeb9cd5201be77ba26b4de5f407c4"
   }
 }

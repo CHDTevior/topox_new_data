@@ -29,8 +29,11 @@ python scripts/validate_ktjd17_truebones.py \
 
 下载脚本从 [release/truebones_v1.json](../release/truebones_v1.json) 读取
 private 仓库、不可变远端 revision、语料身份、release pointer 与 generation
-摘要。它会拒绝绝对路径、`..`、软链接逃逸、已存在的目标、特殊文件、硬链接和
-snapshot 根目录额外条目；先下载到临时 staging，只有在 release pointer、
+摘要。trust record 路径和 revision 都不能由命令行覆盖；若 revision 尚为
+`null`，脚本会在任何网络调用前失败。它会拒绝绝对路径、`..`、软链接逃逸、
+已存在的目标、特殊文件、硬链接、危险文件 mode、NPZ 隐藏/越界成员和
+snapshot 根目录额外条目；先下载到临时 staging，并以原子、禁止覆盖的方式发布，
+只有在 release pointer、
 `generation.json` 摘要、全文件哈希/大小闭包、manifest-to-NPZ 引用、split
 闭包和 986 条 accepted clip 均通过后，才会原子安装并返回成功。验证脚本可以直接接收
 上面的 snapshot 根目录，并安全解析其中的版本化 generation。
@@ -81,11 +84,18 @@ bash scripts/check_public_release.sh
 python scripts/prepare_private_dataset_release.py \
   --source-generation dataset/ktjd17_truebones \
   --output-parent dataset/private_release \
-  --postbuild-gate release/evidence/truebones_postbuild_release_gate.json
+  --postbuild-gate release/evidence/truebones_postbuild_release_gate.json \
+  --fixed-qa-report dataset/validation_reports/truebones_fixed_qa.json \
+  --visual-generation dataset/visual_qa_generation \
+  --visual-equivalence-report dataset/visual_equivalence.json \
+  --review-contact-sheets scratch/visual_review_sheets
 ```
 
 该步骤保持 motion payload 字节不变，将机器本地 provenance 路径改为稳定
 相对标签，重算受影响的 skeleton/reference 哈希，再次执行完整闭包验证，
 并生成下载器强制校验的 hash-pinned `RELEASE.json`。postbuild gate 必须固定
 986/986 数值 QA、66/66 rig 动态透视 QA，以及 `gpt-5.6-sol / xhigh` 独立
-审查 PASS，才允许标记为 training-ready。
+审查 PASS，才允许标记为 training-ready。private snapshot 还会纳入脱敏后的
+完整 fixed-QA、198 个 GIF/filmstrip/rest 视觉产物、11 张 review sheet 和
+审查实际使用的 19 张图片清单；这些文件不进入 public Git，但每次 distribution
+QA 都会按传递哈希闭包复核。

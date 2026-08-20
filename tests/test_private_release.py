@@ -6,10 +6,15 @@ import os
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest import mock
 
+import numpy as np
+from PIL import Image
+
 import scripts.download_private_dataset as downloader
+import src.data.ktjd17.private_release as private_release
 from src.data.ktjd17.private_release import (
     PRIVATE_RELEASE_VERSION,
     TRUST_RECORD_VERSION,
@@ -20,19 +25,42 @@ from src.data.ktjd17.private_release import (
     _sanitize_value,
     _sanitized_path_label,
     _write_release_pointer,
+    load_published_truebones_release,
     load_trusted_release,
     resolve_release_generation,
     resolve_repository_path,
+    validate_private_distribution,
 )
 from src.data.ktjd17.truebones_full_build import (
     EXPECTED_ACCEPTED_IDENTITY_SHA256,
     EXPECTED_SOURCE_GENERATION_ID,
     EXPECTED_SOURCE_GENERATION_JSON_SHA256,
     EXPECTED_SOURCE_SCOPE_IDENTITY_SHA256,
+    TruebonesFullBuildError,
+    _file_manifest as _full_file_manifest,
 )
 
 
 REVISION = "1" * 40
+
+
+def _write_minimal_motion_npz(
+    path: Path, *, motion: np.ndarray | None = None
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(
+        path,
+        motion=(
+            np.zeros((1, 1, 17), dtype=np.float32)
+            if motion is None
+            else motion
+        ),
+        heading_valid=np.asarray([True], dtype=np.bool_),
+        clip_id=np.asarray("clip"),
+        rig_id=np.asarray("rig"),
+        fps_target=np.asarray(30.0, dtype=np.float64),
+        origin_xz=np.zeros(2, dtype=np.float64),
+    )
 
 
 def _trust_record(
@@ -166,7 +194,9 @@ class SanitizerTests(unittest.TestCase):
                 _assert_no_absolute_machine_paths(root)
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / "opaque.bin").write_bytes(b"\xff/" + b"iridisfs/private")
+            (root / "opaque.bin").write_bytes(
+                bytes([255]) + b"/" + b"iridisfs/private"
+            )
             with self.assertRaisesRegex(PrivateReleaseError, "host paths"):
                 _assert_no_absolute_machine_paths(root)
 
@@ -183,6 +213,140 @@ class SanitizerTests(unittest.TestCase):
             os.link(source, root / "alias.bin")
             with self.assertRaisesRegex(PrivateReleaseError, "hard-linked"):
                 _file_manifest(root)
+
+    def test_manifest_rejects_executable_and_group_writable_files(self) -> None:
+        for mode in (0o755, 0o664):
+            with self.subTest(mode=oct(mode)), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                payload = root / "payload.json"
+                payload.write_text("{}\n", encoding="utf-8")
+                payload.chmod(mode)
+                with self.assertRaisesRegex(PrivateReleaseError, "unsafe file mode"):
+                    _file_manifest(root)
+
+    def test_manifest_rejects_group_writable_directories_in_both_closures(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            unsafe = root / "unsafe"
+            unsafe.mkdir()
+            unsafe.chmod(0o777)
+            with self.assertRaisesRegex(PrivateReleaseError, "unsafe directory mode"):
+                _file_manifest(root)
+            with self.assertRaisesRegex(
+                TruebonesFullBuildError, "unsafe directory mode"
+            ):
+                _full_file_manifest(root, forbid_hardlinks=True)
+
+    def test_npz_hidden_or_traversing_members_are_rejected(self) -> None:
+        for member in (
+            "../../escape.npy",
+            "/absolute.npy",
+            ".hidden.npy",
+            "./alias.npy",
+            "hidden.bin",
+        ):
+            with self.subTest(member=member), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                payload = root / "motions/motion.npz"
+                _write_minimal_motion_npz(payload)
+                with zipfile.ZipFile(payload, "a") as archive:
+                    archive.writestr(member, b"opaque")
+                with self.assertRaisesRegex(PrivateReleaseError, "NPZ member closure"):
+                    _assert_no_absolute_machine_paths(root)
+
+    def test_npz_json_strings_are_decoded_before_path_scan(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            payload = root / "motions/motion.npz"
+            _write_minimal_motion_npz(
+                payload,
+                motion=np.asarray(
+                    ' {"path":"\\u002fscratch\\u002fprivate"}'
+                ).reshape(1, 1, 1),
+            )
+            with self.assertRaisesRegex(PrivateReleaseError, "host paths"):
+                _assert_no_absolute_machine_paths(root)
+
+    def test_npz_structured_dtype_field_names_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            payload = root / "motions/motion.npz"
+            structured = np.zeros(
+                (1, 1, 1), dtype=[("/" + "scratch/private/field", "f4")]
+            )
+            _write_minimal_motion_npz(payload, motion=structured)
+            with self.assertRaisesRegex(PrivateReleaseError, "host paths"):
+                _assert_no_absolute_machine_paths(root)
+
+    def test_non_utf8_binary_image_metadata_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            image_path = root / "evidence.jpg"
+            Image.new("RGB", (2, 2)).save(
+                image_path,
+                icc_profile=bytes([255]) + b"/" + b"scratch/private",
+            )
+            with self.assertRaisesRegex(PrivateReleaseError, "binary image metadata"):
+                _assert_no_absolute_machine_paths(root)
+
+    def test_hash_then_archive_precede_generation_semantic_loading(self) -> None:
+        events: list[str] = []
+
+        def semantic_stop(*args: object, **kwargs: object) -> None:
+            events.append("semantic_loading")
+            raise PrivateReleaseError("semantic stop")
+
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(
+            private_release,
+            "resolve_release_generation",
+            return_value=Path(directory) / "generation",
+        ), mock.patch.object(
+            private_release,
+            "verify_full_generation_file_closure",
+            side_effect=lambda *args, **kwargs: events.append("hash_closure"),
+        ), mock.patch.object(
+            private_release,
+            "_preflight_private_release_structure",
+            side_effect=lambda *args, **kwargs: events.append("zip_structure"),
+        ), mock.patch.object(
+            private_release,
+            "verify_full_generation",
+            side_effect=semantic_stop,
+        ) as semantic, mock.patch.object(
+            private_release, "_assert_no_absolute_machine_paths"
+        ) as content_scan:
+            with self.assertRaisesRegex(PrivateReleaseError, "semantic stop"):
+                validate_private_distribution(directory, trusted_release={})
+            self.assertEqual(
+                events, ["hash_closure", "zip_structure", "semantic_loading"]
+            )
+            semantic.assert_called_once()
+            content_scan.assert_not_called()
+
+    def test_evidence_manifest_schema_is_exact(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            artifact = root / "artifact.png"
+            artifact.write_bytes(b"payload")
+            manifest = root / "manifest.json"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "files": {
+                            "artifact.png": {
+                                "sha256": hashlib.sha256(b"payload").hexdigest(),
+                                "size_bytes": 7,
+                            }
+                        },
+                        "untrusted_extra": True,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(PrivateReleaseError, "schema drifted"):
+                private_release._verify_manifest_files(
+                    root, manifest, expected_count=1
+                )
 
 
 class ReleasePointerTests(unittest.TestCase):
@@ -206,6 +370,16 @@ class ReleasePointerTests(unittest.TestCase):
             path.write_text(json.dumps(trust), encoding="utf-8")
             with self.assertRaisesRegex(PrivateReleaseError, "values are invalid"):
                 load_trusted_release(path)
+
+    def test_published_loader_rejects_a_self_authorized_record(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "forged.json"
+            path.write_text(
+                json.dumps(_trust_record("forged", "0" * 64, "1" * 64)),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(PrivateReleaseError, "compiled release identity"):
+                load_published_truebones_release(path)
 
     def test_rejects_pointer_escape_and_root_extra(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -308,14 +482,44 @@ class PostbuildGateTests(unittest.TestCase):
 
 
 class DownloaderTests(unittest.TestCase):
-    def _root_and_trust(self, directory: str) -> tuple[Path, dict[str, object]]:
+    def _root_and_trust(
+        self, directory: str, *, revision: str | None = REVISION
+    ) -> tuple[Path, dict[str, object]]:
         root = Path(directory)
         (root / "release").mkdir()
-        trust = _trust_record("generation-v1", "0" * 64, "1" * 64)
+        trust = _trust_record(
+            "generation-v1", "0" * 64, "1" * 64, revision=revision
+        )
         (root / "release/truebones_v1.json").write_text(
             json.dumps(trust), encoding="utf-8"
         )
         return root, trust
+
+    def test_unpublished_revision_and_removed_overrides_never_reach_hf(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root, _trust = self._root_and_trust(directory, revision=None)
+            for extra in (
+                [],
+                ["--revision", "a" * 40],
+                ["--trust-record", "release/alternate.json"],
+            ):
+                with self.subTest(extra=extra), mock.patch.object(
+                    downloader, "ROOT", root
+                ), mock.patch.object(
+                    downloader, "snapshot_download"
+                ) as snapshot, mock.patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "download_private_dataset.py",
+                        "--local-dir",
+                        "data/snapshot",
+                        *extra,
+                    ],
+                ):
+                    with self.assertRaises(SystemExit):
+                        downloader.main()
+                    snapshot.assert_not_called()
 
     def test_parent_escape_and_preexisting_destination_never_reach_hf(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -324,6 +528,10 @@ class DownloaderTests(unittest.TestCase):
             for local_dir in ("../outside", "data/existing"):
                 with self.subTest(local_dir=local_dir), mock.patch.object(
                     downloader, "ROOT", root
+                ), mock.patch.object(
+                    downloader,
+                    "load_published_truebones_release",
+                    return_value=_trust,
                 ), mock.patch.object(downloader, "snapshot_download") as snapshot, mock.patch.object(
                     sys,
                     "argv",
@@ -343,6 +551,10 @@ class DownloaderTests(unittest.TestCase):
                 raise RuntimeError("transport failed")
 
             with mock.patch.object(downloader, "ROOT", root), mock.patch.object(
+                downloader,
+                "load_published_truebones_release",
+                return_value=_trust,
+            ), mock.patch.object(
                 downloader, "snapshot_download", side_effect=partial_download
             ), mock.patch.object(
                 sys,
@@ -363,17 +575,18 @@ class DownloaderTests(unittest.TestCase):
                 (local / "generation-v1").mkdir()
                 return str(local)
 
-            generation = {"generation_id": "generation-v1"}
-            qa = {"status": "pass", "pass_count": 986}
+            qa = {
+                "status": "pass",
+                "pass_count": 986,
+                "generation_id": "generation-v1",
+            }
             with mock.patch.object(downloader, "ROOT", root), mock.patch.object(
+                downloader,
+                "load_published_truebones_release",
+                return_value=trust,
+            ), mock.patch.object(
                 downloader, "snapshot_download", side_effect=completed_download
             ) as snapshot, mock.patch.object(
-                downloader,
-                "resolve_release_generation",
-                side_effect=lambda local, trusted_release: Path(local) / "generation-v1",
-            ), mock.patch.object(
-                downloader, "verify_full_generation", return_value=generation
-            ), mock.patch.object(
                 downloader, "validate_private_distribution", return_value=qa
             ), mock.patch.object(
                 sys,
@@ -385,6 +598,46 @@ class DownloaderTests(unittest.TestCase):
             kwargs = snapshot.call_args.kwargs
             self.assertEqual(kwargs["revision"], trust["hf_revision"])
             self.assertNotIn("README.md", kwargs["allow_patterns"])
+
+    def test_concurrent_destination_is_preserved_and_stage_rolls_back(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root, trust = self._root_and_trust(directory)
+
+            def completed_download_with_race(**kwargs: object) -> str:
+                local = Path(str(kwargs["local_dir"]))
+                (local / "generation-v1").mkdir()
+                destination = root / "data/snapshot"
+                destination.mkdir()
+                (destination / "owner.txt").write_text("keep\n", encoding="utf-8")
+                return str(local)
+
+            qa = {
+                "status": "pass",
+                "pass_count": 986,
+                "generation_id": "generation-v1",
+            }
+            with mock.patch.object(downloader, "ROOT", root), mock.patch.object(
+                downloader,
+                "load_published_truebones_release",
+                return_value=trust,
+            ), mock.patch.object(
+                downloader,
+                "snapshot_download",
+                side_effect=completed_download_with_race,
+            ), mock.patch.object(
+                downloader, "validate_private_distribution", return_value=qa
+            ), mock.patch.object(
+                sys,
+                "argv",
+                ["download_private_dataset.py", "--local-dir", "data/snapshot"],
+            ):
+                with self.assertRaisesRegex(SystemExit, "destination appeared"):
+                    downloader.main()
+            self.assertEqual(
+                (root / "data/snapshot/owner.txt").read_text(encoding="utf-8"),
+                "keep\n",
+            )
+            self.assertEqual(list((root / "data").glob(".snapshot.download-*")), [])
 
 
 if __name__ == "__main__":

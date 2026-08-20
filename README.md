@@ -49,14 +49,15 @@ contract, and [docs/guide_zh.md](docs/guide_zh.md) for the Chinese guide.
 ```bash
 python -m venv .venv
 . .venv/bin/activate
-python -m pip install -r requirements.txt
+python -m pip install -e .
 python -m unittest discover -s tests -p 'test_*.py' -q
 ```
 
 The release tree includes data-independent tests plus fixture-bound regression
 tests. A clean checkout runs the data-independent subset and explicitly skips
 assertions tied to private immutable generations. The full source environment
-passes all 128 tests (with private-fixture tests skipped in a clean checkout).
+passes the complete test suite (with private-fixture tests skipped in a clean
+checkout).
 Tests do
 not download or bundle third-party motion data.
 
@@ -82,10 +83,13 @@ python scripts/validate_ktjd17_truebones.py \
 
 The downloader reads [release/truebones_v1.json](release/truebones_v1.json),
 which pins the private repository, immutable remote revision, corpus identity,
-release pointer, and `generation.json`. It rejects absolute paths, `..`
+release pointer, and `generation.json`. The trust-record path and revision have
+no command-line override; an unpublished `null` revision fails before any
+network call. It rejects absolute paths, `..`
 escapes, symlink escapes, existing destinations, special files, hard links,
-and unexpected snapshot-root entries. Download happens in a fresh staging
-directory and is atomically installed only after checking the release pointer,
+unsafe file modes, hidden/traversing NPZ members, and unexpected snapshot-root
+entries. Download happens in a fresh staging directory and is atomically,
+no-clobber installed only after checking the release pointer,
 the pinned `generation.json` digest, every immutable file hash/size, all
 manifest-to-NPZ references, split closure, and the 986 accepted clips. The validator accepts
 the snapshot root shown above and resolves its versioned generation safely.
@@ -116,11 +120,11 @@ from src.data.ktjd17.decoder import decode_ktjd17
 from src.data.ktjd17.encoder import load_skeleton
 from src.data.ktjd17.loader import load_motion_npz
 from src.data.ktjd17.private_release import (
-    load_trusted_release,
+    load_published_truebones_release,
     resolve_release_generation,
 )
 
-trust = load_trusted_release(Path("release/truebones_v1.json"))
+trust = load_published_truebones_release(Path("release/truebones_v1.json"))
 root = resolve_release_generation(
     Path("data/ktjd17_truebones"), trusted_release=trust
 )
@@ -216,13 +220,21 @@ needed by the downloader:
 python scripts/prepare_private_dataset_release.py \
   --source-generation dataset/ktjd17_truebones \
   --output-parent dataset/private_release \
-  --postbuild-gate release/evidence/truebones_postbuild_release_gate.json
+  --postbuild-gate release/evidence/truebones_postbuild_release_gate.json \
+  --fixed-qa-report dataset/validation_reports/truebones_fixed_qa.json \
+  --visual-generation dataset/visual_qa_generation \
+  --visual-equivalence-report dataset/visual_equivalence.json \
+  --review-contact-sheets scratch/visual_review_sheets
 ```
 
 The postbuild gate must pin a 986/986 fixed-QA pass and a 66/66-rig dynamic
 perspective review performed with `gpt-5.6-sol` at `xhigh` reasoning. The
 release copy is marked training-ready only after those checks and byte-level
-motion / elementwise-numeric skeleton equivalence succeed.
+motion / elementwise-numeric skeleton equivalence succeed. The private snapshot
+also carries the sanitized full fixed-QA report, all 198 GIF/filmstrip/rest
+artifacts, all 11 review sheets, the exact 19-image reviewer attachment
+manifest, and their transitive hash manifests. These evidence files stay out
+of public Git and are verified during every standalone distribution QA.
 
 ## Data boundary
 

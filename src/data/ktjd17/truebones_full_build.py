@@ -81,20 +81,20 @@ EXPECTED_SOURCE_SCOPE_IDENTITY_SHA256 = (
     "67b4935703ce9d72792963634f35847a9ce9c08771b95884e89225bee3ed36d2"
 )
 RELEASE_READY_STATUS = "release_ready"
-POSTBUILD_GATE_VERSION = "ktjd17-truebones-postbuild-gate-v1"
+POSTBUILD_GATE_VERSION = "ktjd17-truebones-postbuild-gate-v2"
 EXPECTED_SOURCE_GENERATION_ID = "20260819T215405576671Z-2d04a8d85638"
 EXPECTED_SOURCE_GENERATION_JSON_SHA256 = (
     "46a0d011a47e09fc5451aa97de5fe9d01a561465a8a09ae8bec75e36a9fd6484"
 )
 EXPECTED_FIXED_QA_REPORT_SHA256 = (
-    "fcf6fb1ce9ede7e1db035dd7c617631e8f729532d35e1ce79e6694029129f1ae"
+    "23ecbdabdc8f5801120ee95215efd55b15ba69ed9e80007636ff54c82ea8cede"
 )
 EXPECTED_POSTBUILD_VISUAL_GENERATION_ID = "20260819T215929053759Z-faf7ba07b6f5"
 EXPECTED_POSTBUILD_VISUAL_INDEX_SHA256 = (
-    "6754c9d8f909fe11f04c44e3499c69f49c1c524eade9e4634c9a3827755b3992"
+    "78e2cd86202b952b2e8fc475f03e1a1ac5dbeb9cd5201be77ba26b4de5f407c4"
 )
 EXPECTED_VISUAL_EQUIVALENCE_REPORT_SHA256 = (
-    "73e29dd5039c110df41a1b8f1939458ef9570a403589b8024340cf26fa8df4ba"
+    "02c92f819d4f3527b38852705e1abdd85957ace815f7ec6924aad2205f3e49c7"
 )
 EXPECTED_POSTBUILD_VISUAL_REVIEW_SHA256 = (
     "f37b7915afc81ddf787578065eaad38de510e801836f8dab7e155a03977b2b1d"
@@ -103,7 +103,7 @@ EXPECTED_POSTBUILD_VISUAL_REVIEW_THREAD_ID = (
     "01a01d44-6cea-7031-a139-2c6c18e7785f"
 )
 EXPECTED_POSTBUILD_GATE_SHA256 = (
-    "eb6ee4b3d3c84f428b1fb4930e595d1effd4d339f2f2a6ec66d7b7e2c4a60b91"
+    "729d39e067485b148f913bc2c82d242c501f6657c3a5dbf10320d993d832b377"
 )
 EXPECTED_POSTBUILD_DYNAMIC_STRATA = [
     "biped_or_human_like",
@@ -295,13 +295,20 @@ def _file_manifest(
     forbid_hardlinks: bool = False,
 ) -> dict[str, dict[str, Any]]:
     result: dict[str, dict[str, Any]] = {}
-    for path in sorted(root.rglob("*")):
+    for path in (root, *sorted(root.rglob("*"))):
         metadata = os.lstat(path)
         if stat.S_ISLNK(metadata.st_mode):
             raise TruebonesFullBuildError(
                 f"symlink is forbidden inside full generation: {path}"
             )
         if stat.S_ISDIR(metadata.st_mode):
+            if forbid_hardlinks:
+                mode = stat.S_IMODE(metadata.st_mode)
+                if mode not in {0o700, 0o750, 0o755}:
+                    raise TruebonesFullBuildError(
+                        "unsafe directory mode inside distribution generation: "
+                        f"{path} ({mode:04o})"
+                    )
             continue
         if not stat.S_ISREG(metadata.st_mode):
             raise TruebonesFullBuildError(
@@ -311,6 +318,12 @@ def _file_manifest(
             raise TruebonesFullBuildError(
                 f"hard-linked file is forbidden inside full generation: {path}"
             )
+        if forbid_hardlinks:
+            mode = stat.S_IMODE(metadata.st_mode)
+            if mode & 0o7133 or mode & 0o400 == 0:
+                raise TruebonesFullBuildError(
+                    f"unsafe file mode inside distribution generation: {path} ({mode:04o})"
+                )
         relpath = path.relative_to(root).as_posix()
         if relpath == "generation.json":
             continue
@@ -1036,12 +1049,12 @@ def _verify_release_ready_metadata(
     )
 
 
-def verify_full_generation(
+def verify_full_generation_file_closure(
     root: str | Path,
     *,
     require_complete: bool = True,
-) -> dict[str, Any]:
-    """Verify immutable closure and every public full-dataset reference."""
+) -> tuple[Path, dict[str, Any], dict[str, dict[str, Any]]]:
+    """Verify only generation identity plus immutable file hashes and sizes."""
     generation_root = Path(root).expanduser().resolve()
     generation = _load_json(generation_root / "generation.json")
     if generation.get("generation_id") != generation_root.name:
@@ -1069,6 +1082,19 @@ def verify_full_generation(
     for relpath, metadata in expected_files.items():
         if observed_files[relpath] != dict(metadata):
             raise TruebonesFullBuildError(f"full generation hash/size drift: {relpath}")
+    return generation_root, generation, observed_files
+
+
+def verify_full_generation(
+    root: str | Path,
+    *,
+    require_complete: bool = True,
+) -> dict[str, Any]:
+    """Verify immutable closure and every public full-dataset reference."""
+    generation_root, generation, observed_files = verify_full_generation_file_closure(
+        root,
+        require_complete=require_complete,
+    )
     if _sha256_file(generation_root / "schema.json") != EXPECTED_FROZEN_SCHEMA_SHA256:
         raise TruebonesFullBuildError("published schema hash drifted")
     if (

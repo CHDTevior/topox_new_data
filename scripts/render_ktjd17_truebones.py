@@ -20,7 +20,7 @@ from src.data.ktjd17.truebones_full_build import (  # noqa: E402
     verify_full_generation,
 )
 from src.data.ktjd17.private_release import (  # noqa: E402
-    load_trusted_release,
+    load_published_truebones_release,
     resolve_release_generation,
     resolve_repository_path,
 )
@@ -47,9 +47,6 @@ def main() -> int:
         default=Path("outputs/ktjd17_truebones_visual"),
     )
     parser.add_argument(
-        "--trust-record", type=Path, default=Path("release/truebones_v1.json")
-    )
-    parser.add_argument(
         "--source-backed",
         action="store_true",
         help="use the proprietary forward-audit representative selection",
@@ -68,10 +65,9 @@ def main() -> int:
     if args.source_backed:
         dataset_root = dataset_input
     else:
-        trust_path = resolve_repository_path(
-            ROOT, args.trust_record, argument_name="--trust-record"
+        trust = load_published_truebones_release(
+            ROOT / "release/truebones_v1.json", require_hf_revision=True
         )
-        trust = load_trusted_release(trust_path)
         dataset_root = resolve_release_generation(
             dataset_input, trusted_release=trust
         )

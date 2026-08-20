@@ -4,9 +4,10 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
+import errno
 import json
 import os
-import re
 import shutil
 import sys
 import tempfile
@@ -21,16 +22,48 @@ if str(ROOT) not in sys.path:
 
 from src.data.ktjd17.private_release import (  # noqa: E402
     PrivateReleaseError,
-    load_trusted_release,
-    resolve_release_generation,
+    load_published_truebones_release,
     resolve_repository_path,
     validate_private_distribution,
 )
-from src.data.ktjd17.truebones_full_build import verify_full_generation  # noqa: E402
 
 
 DEFAULT_TRUST_RECORD = Path("release/truebones_v1.json")
-_IMMUTABLE_REVISION = re.compile(r"^[0-9a-f]{40}$")
+_AT_FDCWD = -100
+_RENAME_NOREPLACE = 1
+
+
+def _publish_directory_noreplace(source: Path, destination: Path) -> None:
+    """Atomically install one directory without replacing a concurrent target."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    renameat2 = getattr(libc, "renameat2", None)
+    if renameat2 is None:
+        raise PrivateReleaseError(
+            "this platform lacks atomic no-clobber directory publication"
+        )
+    renameat2.argtypes = (
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_uint,
+    )
+    renameat2.restype = ctypes.c_int
+    result = renameat2(
+        _AT_FDCWD,
+        os.fsencode(source),
+        _AT_FDCWD,
+        os.fsencode(destination),
+        _RENAME_NOREPLACE,
+    )
+    if result == 0:
+        return
+    error_number = ctypes.get_errno()
+    if error_number == errno.EEXIST:
+        raise PrivateReleaseError("download destination appeared during verification")
+    raise PrivateReleaseError(
+        f"atomic no-clobber publication failed: {os.strerror(error_number)}"
+    )
 
 
 def main() -> int:
@@ -41,31 +74,17 @@ def main() -> int:
         )
     )
     parser.add_argument(
-        "--trust-record",
-        type=Path,
-        default=DEFAULT_TRUST_RECORD,
-        help="repository-relative public trust record",
-    )
-    parser.add_argument(
         "--local-dir", type=Path, default=Path("data/ktjd17_truebones")
-    )
-    parser.add_argument(
-        "--revision",
-        help="immutable 40-hex Hugging Face commit; defaults to the trust record",
     )
     args = parser.parse_args()
 
     staging: Path | None = None
     try:
-        trust_path = resolve_repository_path(
-            ROOT, args.trust_record, argument_name="--trust-record"
+        trust_path = ROOT / DEFAULT_TRUST_RECORD
+        trust = load_published_truebones_release(
+            trust_path, require_hf_revision=True
         )
-        trust = load_trusted_release(trust_path)
-        revision = args.revision or trust.get("hf_revision")
-        if not isinstance(revision, str) or _IMMUTABLE_REVISION.fullmatch(revision) is None:
-            raise PrivateReleaseError(
-                "--revision must be an immutable 40-hex commit until the trust record pins one"
-            )
+        revision = str(trust["hf_revision"])
         destination = resolve_repository_path(
             ROOT,
             args.local_dir,
@@ -100,14 +119,10 @@ def main() -> int:
             if transport_cache.is_symlink() or not transport_cache.is_dir():
                 raise PrivateReleaseError("download transport cache has an unsafe type")
             shutil.rmtree(transport_cache)
-        generation_root = resolve_release_generation(
-            staging, trusted_release=trust
-        )
-        generation = verify_full_generation(generation_root, require_complete=True)
         qa = validate_private_distribution(staging, trusted_release=trust)
         if qa.get("status") != "pass":
             raise PrivateReleaseError("downloaded distribution QA did not pass")
-        os.replace(staging, destination)
+        _publish_directory_noreplace(staging, destination)
         staging = None
         generation_root = destination / str(trust["generation_id"])
         descriptor = os.open(destination.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
@@ -129,7 +144,7 @@ def main() -> int:
                 "revision": revision,
                 "local_dir": relative_destination,
                 "dataset_root": relative_generation,
-                "generation_id": generation["generation_id"],
+                "generation_id": qa["generation_id"],
                 "qa_pass_count": qa["pass_count"],
                 "status": "downloaded_and_verified",
             },

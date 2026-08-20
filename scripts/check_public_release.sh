@@ -7,6 +7,8 @@ cd "$release_root"
 python - <<'PY'
 from __future__ import annotations
 
+import ast
+import json
 import os
 import re
 import stat
@@ -130,15 +132,7 @@ absolute_default = re.compile(
 errors: list[str] = []
 
 
-def inspect_payload(path: str, payload: bytes, *, origin: str) -> None:
-    if b"\0" in payload:
-        errors.append(f"NUL/binary payload in {origin}: {path}")
-        return
-    try:
-        text = payload.decode("utf-8")
-    except UnicodeDecodeError:
-        errors.append(f"non-UTF-8 payload in {origin}: {path}")
-        return
+def inspect_text(path: str, text: str, *, origin: str) -> None:
     checks = (
         (posix_machine_path, "POSIX machine path"),
         (windows_machine_path, "Windows machine path"),
@@ -152,6 +146,74 @@ def inspect_payload(path: str, payload: bytes, *, origin: str) -> None:
     for pattern, label in checks:
         if pattern.search(text):
             errors.append(f"{label} in {origin}: {path}")
+
+
+def inspect_structured_strings(path: str, value: object, *, origin: str) -> None:
+    if isinstance(value, dict):
+        for key, item in value.items():
+            inspect_structured_strings(path, key, origin=origin)
+            inspect_structured_strings(path, item, origin=origin)
+    elif isinstance(value, list):
+        for item in value:
+            inspect_structured_strings(path, item, origin=origin)
+    elif isinstance(value, str):
+        inspect_text(path, value, origin=origin)
+
+
+def inspect_payload(path: str, payload: bytes, *, origin: str) -> None:
+    if b"\0" in payload:
+        errors.append(f"NUL/binary payload in {origin}: {path}")
+        return
+    try:
+        text = payload.decode("utf-8")
+    except UnicodeDecodeError:
+        errors.append(f"non-UTF-8 payload in {origin}: {path}")
+        return
+    inspect_text(path, text, origin=origin)
+    suffix = Path(path).suffix.lower()
+    try:
+        if suffix == ".json":
+            inspect_structured_strings(path, json.loads(text), origin=f"decoded {origin}")
+        elif suffix == ".jsonl":
+            for line_number, line in enumerate(text.splitlines(), start=1):
+                if line:
+                    inspect_structured_strings(
+                        path,
+                        json.loads(line),
+                        origin=f"decoded {origin} line {line_number}",
+                    )
+        elif suffix == ".py":
+            tree = ast.parse(text, filename=path)
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Constant):
+                    continue
+                if isinstance(node.value, str):
+                    inspect_text(path, node.value, origin=f"decoded {origin}")
+                elif isinstance(node.value, bytes):
+                    try:
+                        decoded_bytes = node.value.decode("utf-8")
+                    except UnicodeDecodeError:
+                        errors.append(
+                            f"non-UTF-8 Python bytes literal in {origin}: {path}"
+                        )
+                    else:
+                        inspect_text(
+                            path,
+                            decoded_bytes,
+                            origin=f"decoded Python bytes in {origin}",
+                        )
+    except (json.JSONDecodeError, SyntaxError) as exc:
+        errors.append(f"invalid structured text in {origin}: {path}: {exc}")
+
+
+def executable_mode_allowed(path_text: str, payload: bytes) -> bool:
+    pure = PurePosixPath(path_text)
+    return (
+        len(pure.parts) >= 2
+        and pure.parts[0] == "scripts"
+        and pure.suffix in {".py", ".sh"}
+        and payload.startswith(b"#!")
+    )
 
 
 for path_text in paths:
@@ -173,11 +235,12 @@ for path_text in paths:
         if mode not in {"100644", "100755"}:
             errors.append(f"unsafe Git mode {mode}: {path_text}")
         else:
-            inspect_payload(
-                path_text,
-                git_bytes("show", f":{path_text}"),
-                origin="Git index",
-            )
+            indexed_payload = git_bytes("show", f":{path_text}")
+            if mode == "100755" and not executable_mode_allowed(
+                path_text, indexed_payload
+            ):
+                errors.append(f"unexpected executable Git mode: {path_text}")
+            inspect_payload(path_text, indexed_payload, origin="Git index")
 
     if path.exists() or path.is_symlink():
         metadata = os.lstat(path)
@@ -186,7 +249,17 @@ for path_text in paths:
         elif metadata.st_nlink != 1:
             errors.append(f"hard-linked worktree candidate: {path_text}")
         else:
-            inspect_payload(path_text, path.read_bytes(), origin="worktree")
+            worktree_payload = path.read_bytes()
+            worktree_executable = bool(stat.S_IMODE(metadata.st_mode) & 0o111)
+            if worktree_executable and not executable_mode_allowed(
+                path_text, worktree_payload
+            ):
+                errors.append(f"unexpected executable worktree mode: {path_text}")
+            if path_text in tracked:
+                expected_executable = index_modes.get(path_text) == "100755"
+                if worktree_executable != expected_executable:
+                    errors.append(f"Git/worktree executable-mode drift: {path_text}")
+            inspect_payload(path_text, worktree_payload, origin="worktree")
 
 if errors:
     print("public release check failed:")
