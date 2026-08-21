@@ -30,6 +30,16 @@ For every non-root physical joint, channels `13:17` are exact zero and excluded
 by `channel_valid_mask`. Padded joints and frames are excluded from every loss
 and statistic.
 
+## PZ/Human statistics payloads
+
+The private PZ-311 + Human-1 release includes raw population moments over all
+accepted clips. `species_stats.npz` stores `[117,17]` biological-species
+mean/std/count. `rig_stats.npz` stores padded `[312,J_max,17]` per-physical-rig,
+per-joint mean/std/count plus `joint_count` and `valid_mask`. Counts, rather
+than zero values, define validity. Non-root channels `13:17`, invalid heading
+frames, and padded joints never enter a moment. Standard deviation uses
+`ddof=0`; the stored arrays do not silently apply a training-specific floor.
+
 ## Skeleton payload
 
 Each skeleton NPZ carries the physical hierarchy, canonical rest positions,

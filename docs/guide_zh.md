@@ -11,6 +11,18 @@ motion 文件是未 padding、未 normalization 的
 
 ## 下载 private 数据
 
+PZ 311 rig + Human 1 rig 的全量 tar-shard release：
+
+```bash
+hf auth login
+python scripts/download_private_pz_human312.py \
+  --local-dir data/ktjd17_pz_human312
+```
+
+其 101,368-clip 源范围、312-rig 动态可视化流程、117 个生物物种统计和
+312 套 rig 的 per-joint/per-channel mean/std 见
+[PZ_HUMAN312.md](PZ_HUMAN312.md)。以下 Truebones 下载与验证流程保持独立。
+
 先完成 Hugging Face 登录，然后下载到仓库内的相对路径：
 
 ```bash
@@ -56,8 +68,8 @@ motion、skeleton 或可逆派生表示上传到 public GitHub/Hugging Face。
 
 Truebones v1 的范围是明确冻结的：上游目录共有 70 个 rig，其中 66 个具备可用
 的真实 BVH 旋转源；`Ant`、`Crab`、`Deer`、`Jaguar` 四个不可用。最终包含
-986 个 accepted clip，另有 84 个上游阶段 rejected motion。本版本还不包含
-单独的 PZ 311 个 rig 与 Human 1 个 rig；它们属于后续独立来源批次。
+986 个 accepted clip，另有 84 个上游阶段 rejected motion。PZ 311 个 rig 与
+Human 1 个 rig 使用另一套 private release、generation identity 和 trust record。
 
 ## 读取和训练视图
 

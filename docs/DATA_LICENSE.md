@@ -24,5 +24,11 @@ Consequently:
 - recipients must not make the private dataset public or redistribute it;
 - public examples must be synthetic or separately licensed.
 
+The PlanetZoo/Human KTJD-17 batch is also kept in a separate private dataset by
+project policy. Its public release contains processing code, documentation,
+counts, and hashes only; it contains no motion, skeleton, statistics array, or
+rendered data artifact. Source users remain responsible for their own
+PlanetZoo/MotionStreamer access and terms.
+
 This document records the release boundary; it is not a substitute for legal
 advice or the upstream license text.

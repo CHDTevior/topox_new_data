@@ -61,7 +61,26 @@ checkout).
 Tests do
 not download or bundle third-party motion data.
 
-## Download the private validated dataset
+## Download the private validated datasets
+
+### PlanetZoo 311 rigs + Human 1 rig
+
+The 101,368-clip source scope and its 117-species / 312-rig statistics are
+distributed as hash-checked tar shards in a private Hugging Face dataset:
+
+```bash
+hf auth login
+python scripts/download_private_pz_human312.py \
+  --local-dir data/ktjd17_pz_human312
+```
+
+The downloader prints the relative generation and statistics roots after it
+has verified `RELEASE.json`, every shard, the full generation identity, and the
+statistics identity. See [docs/PZ_HUMAN312.md](docs/PZ_HUMAN312.md) for source
+provenance, the 312-rig visual workflow, the two mean/std granularities, and
+private packaging.
+
+### Truebones
 
 The validated 986-clip Truebones-derived release is private because the
 upstream Truebones terms prohibit redistribution. Authorized users can log in
@@ -115,8 +134,9 @@ failures before publication still remove their private partial payload.
 The published Truebones v1 scope is deliberately exact: the upstream catalog
 names 70 rigs, 66 have usable authoritative BVH rotations, and 4 are unavailable
 (`Ant`, `Crab`, `Deer`, `Jaguar`). The release contains 986 accepted clips;
-84 other catalog motions were rejected upstream before conversion. It does not
-yet contain the separate Planet Zoo 311-rig or Human 1-rig batches.
+84 other catalog motions were rejected upstream before conversion. Planet Zoo
+311-rig plus Human 1-rig data are a separate private release with their own
+source audits, generation identity, tar shards, and trust record.
 
 The download helper reads the token from the Hugging Face credential store.
 Do not put tokens in commands, source files, or configuration committed to Git.
@@ -221,6 +241,11 @@ Continue in the order encoded by the scripts:
 
 Each later command must point to the immutable generation emitted by its
 predecessor. Do not bypass the prototype, visual, or freeze gates.
+
+The PlanetZoo/Human batch has its own relative-path runbook in
+[docs/PZ_HUMAN312.md](docs/PZ_HUMAN312.md). It uses the same loader, decoder,
+and perspective renderer contract, but rotation authority comes from the
+stage-2 PlanetZoo BVHs and MotionStreamer272 rather than Truebones.
 
 Before uploading a complete generation to a private data host, create a
 host-sanitized distribution copy. This preserves all motion payload bytes and
