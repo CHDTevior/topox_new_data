@@ -36,7 +36,8 @@ data/ktjd17_pz_human312/species_stats
 - `species_stats.npz`：117 个生物物种的 `[117,17]` mean/std/count；
   PlanetZoo 的 Female/Male/Juvenile 合并到同一个生物物种，Human 单独成组。
 - `rig_stats.npz`：312 套物理 rig 的 padded
-  `[312,J_max,17]` mean/std/count，另带 `joint_count`、`valid_mask` 和每个 rig
+  `[312,102,17]` mean/std/count（本批 observed `J_max=102`），另带
+  `joint_count`、`valid_mask` 和每个 rig
   对应的生物物种。不同性别/年龄骨架不强行建立关节对应。
 
 两个层次都使用所有 accepted train/val/test clip 的原始、未 padding、未
@@ -58,8 +59,8 @@ with np.load(stats_root / "species_stats.npz", allow_pickle=False) as z:
 
 with np.load(stats_root / "rig_stats.npz", allow_pickle=False) as z:
     rig_ids = z["rig_ids"].astype(str)
-    rig_mean = z["mean"]           # [312, J_max, 17]
-    rig_std = z["std"]             # [312, J_max, 17]
+    rig_mean = z["mean"]           # [312, 102, 17] in this release
+    rig_std = z["std"]             # [312, 102, 17] in this release
     rig_count = z["count"]         # count > 0 is a valid cell
     joint_count = z["joint_count"]
 ```

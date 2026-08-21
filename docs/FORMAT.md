@@ -34,8 +34,9 @@ and statistic.
 
 The private PZ-311 + Human-1 release includes raw population moments over all
 accepted clips. `species_stats.npz` stores `[117,17]` biological-species
-mean/std/count. `rig_stats.npz` stores padded `[312,J_max,17]` per-physical-rig,
-per-joint mean/std/count plus `joint_count` and `valid_mask`. Counts, rather
+mean/std/count. In this frozen release, `rig_stats.npz` stores padded
+`[312,102,17]` per-physical-rig, per-joint mean/std/count plus `joint_count`
+and `valid_mask`; here the observed PZ/Human-only `J_max` is 102. Counts, rather
 than zero values, define validity. Non-root channels `13:17`, invalid heading
 frames, and padded joints never enter a moment. Standard deviation uses
 `ddof=0`; the stored arrays do not silently apply a training-specific floor.
@@ -66,7 +67,8 @@ replace the other.
 ## Frozen validated release
 
 - FPS: 30
-- `J_max`: 142
+- cross-release model padding `J_max`: 142 (the Truebones maximum); the
+  PZ/Human-only `rig_stats.npz` uses its observed `J_max=102`
 - loader `T_max`: selected by the consumer; the current Graph-CodeFlow
   contract uses 300
 - train-only gains: `[3.867547101351066, 2.943516881261983, 3.3212471860907744]`
